@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "manastirea-ogra-admin",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/media/*"]
+  },
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "manastire-main",
+    "database_id": "9af11358-2cc8-4eba-98ad-76bee4de07b2",
+    "migrations_dir": "./migrations"
+  }],
+  "r2_buckets": [{
+    "binding": "MEDIA",
+    "bucket_name": "manastirea-ogra-media"
+  }],
+  "vars": {
+    "SITE_ORIGIN": "http://localhost:4321",
+    "PUBLIC_MEDIA_URL": "https://pub-ef532c798ae84b0997a7020160d379d7.r2.dev"
+  },
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.05 }
+  }
+}
