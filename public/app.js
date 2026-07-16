@@ -291,7 +291,7 @@ function normalizeAboutDocument(document) {
 }
 
 function aboutEditorMarkup(page) {
-  return '<form id="page-form"><div class="form-grid">' +
+  return '<form id="page-form" class="about-page-form"><div class="form-grid">' +
     field("title", L.titleField, page.title) +
     field("eyebrow", L.eyebrow, page.eyebrow) +
     field("intro", L.intro, page.intro, "textarea", "span-2") +
@@ -316,11 +316,14 @@ function aboutEditorMarkup(page) {
     '<button type="button" class="editor-button" data-editor-command="redo" title="' + esc(L.redo) + '" aria-label="' + esc(L.redo) + '"><span aria-hidden="true">&#8631;</span></button>' +
     '<span class="toolbar-divider" aria-hidden="true"></span>' +
     '<label class="toolbar-upload"><input data-inline-image-input type="file" accept="image/jpeg,image/png,image/webp,image/avif"><span>' + esc(L.insertImage) + '</span></label>' +
-    '</div><div class="image-controls" data-image-controls hidden><strong>' + esc(L.imagePosition) + '</strong>' +
-    '<div class="segmented-control" aria-label="' + esc(L.imagePosition) + '">' +
-    '<button type="button" data-image-align="left">' + esc(L.alignLeft) + '</button><button type="button" data-image-align="center">' + esc(L.alignCenter) + '</button><button type="button" data-image-align="right">' + esc(L.alignRight) + '</button><button type="button" data-image-align="full">' + esc(L.alignFull) + '</button></div>' +
-    '<label>' + esc(L.imageSize) + '<select data-image-width><option value="35">35%</option><option value="50">50%</option><option value="70">70%</option><option value="100">100%</option></select></label>' +
-    '<label class="image-alt-control">' + esc(L.imageAlt) + '<input data-image-alt type="text" maxlength="300"></label></div>' +
+    '</div><div class="image-controls" data-image-controls hidden>' +
+    '<div class="image-controls-head"><div><strong>' + esc(L.imageSelected) + '</strong><span>' + esc(L.imageControlsHint) + '</span></div><button class="image-remove-button" type="button" data-image-remove>' + esc(L.removeImage) + '</button></div>' +
+    '<div class="image-control-grid"><section class="image-control-group"><span class="image-control-label">' + esc(L.imageFlow) + '</span>' +
+    '<div class="segmented-control layout-control" aria-label="' + esc(L.imageFlow) + '">' +
+    '<button type="button" data-image-align="left">' + esc(L.wrapLeft) + '</button><button type="button" data-image-align="center">' + esc(L.centerNoWrap) + '</button><button type="button" data-image-align="right">' + esc(L.wrapRight) + '</button><button type="button" data-image-align="full">' + esc(L.separateRow) + '</button></div></section>' +
+    '<section class="image-control-group"><span class="image-control-label">' + esc(L.imageSize) + '</span><div class="segmented-control size-control" aria-label="' + esc(L.imageSize) + '">' +
+    '<button type="button" data-image-width-option="35">' + esc(L.imageSmall) + '</button><button type="button" data-image-width-option="50">' + esc(L.imageMedium) + '</button><button type="button" data-image-width-option="70">' + esc(L.imageLarge) + '</button><button type="button" data-image-width-option="100">100%</button></div></section>' +
+    '<label class="image-alt-control">' + esc(L.imageAlt) + '<input data-image-alt type="text" maxlength="300"></label></div></div>' +
     '<div class="rich-editor" data-about-editor></div></div></section>' +
     '<div class="sticky-actions"><button class="button button-primary" type="submit">' + esc(L.save) + "</button></div></form>";
 }

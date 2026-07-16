@@ -306,6 +306,16 @@ button, input, textarea, select { font: inherit; }
   border-top: 1px solid var(--line);
 }
 
+.about-page-form .sticky-actions {
+  position: static;
+  margin-top: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
 .about-editor-heading {
   display: flex;
   align-items: flex-start;
@@ -355,9 +365,8 @@ button, input, textarea, select { font: inherit; }
 }
 
 .editor-toolbar {
-  position: sticky;
-  top: 82px;
-  z-index: 8;
+  position: relative;
+  z-index: 2;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -369,7 +378,6 @@ button, input, textarea, select { font: inherit; }
 }
 
 .toolbar-select,
-.image-controls select,
 .image-controls input {
   min-height: 38px;
   padding: 7px 10px;
@@ -381,7 +389,6 @@ button, input, textarea, select { font: inherit; }
 }
 
 .toolbar-select:focus,
-.image-controls select:focus,
 .image-controls input:focus {
   border-color: var(--gold);
   box-shadow: 0 0 0 3px rgba(201, 154, 75, 0.14);
@@ -446,21 +453,69 @@ button, input, textarea, select { font: inherit; }
 }
 
 .image-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 14px;
-  padding: 13px 16px;
+  padding: 16px;
   border-bottom: 1px solid #ead9b7;
   background: #fffaf0;
 }
 
 .image-controls[hidden] { display: none; }
 
-.image-controls > strong {
-  align-self: center;
+.image-controls-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+
+.image-controls-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.image-controls-head strong {
   color: #5b4523;
-  font-size: 13px;
+  font-size: 14px;
+}
+
+.image-controls-head span {
+  color: #7a6b51;
+  font-size: 12px;
+}
+
+.image-remove-button {
+  min-height: 35px;
+  padding: 7px 11px;
+  border: 1px solid #ebbdc2;
+  border-radius: 7px;
+  color: var(--danger);
+  background: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.image-remove-button:hover {
+  color: #fff;
+  background: var(--danger);
+}
+
+.image-control-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(250px, 0.7fr);
+  gap: 14px;
+  align-items: end;
+}
+
+.image-control-group {
+  display: grid;
+  gap: 6px;
+}
+
+.image-control-label {
+  color: #5b4523;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .image-controls label {
@@ -472,8 +527,7 @@ button, input, textarea, select { font: inherit; }
 }
 
 .image-alt-control {
-  min-width: min(300px, 100%);
-  flex: 1 1 230px;
+  grid-column: 1 / -1;
 }
 
 .segmented-control {
@@ -501,13 +555,34 @@ button, input, textarea, select { font: inherit; }
   background: #9b6c24;
 }
 
+.layout-control button {
+  flex: 1 1 165px;
+}
+
+.size-control button {
+  flex: 1 1 70px;
+}
+
 .rich-editor {
-  min-height: 560px;
+  height: 640px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: #a8b4bd #f1f4f6;
+  scrollbar-gutter: stable;
   background: #fff;
 }
 
+.rich-editor::-webkit-scrollbar { width: 11px; }
+.rich-editor::-webkit-scrollbar-track { background: #f1f4f6; }
+.rich-editor::-webkit-scrollbar-thumb {
+  border: 3px solid #f1f4f6;
+  border-radius: 999px;
+  background: #9caab5;
+}
+
 .rich-editor .tiptap {
-  min-height: 560px;
+  min-height: 100%;
   padding: clamp(26px, 5vw, 64px);
   color: #1c2b3a;
   font-family: Georgia, "Times New Roman", serif;
@@ -877,9 +952,10 @@ button, input, textarea, select { font: inherit; }
   .hero-preview { grid-column: auto; }
   .about-editor-heading { flex-direction: column; }
   .editor-status { max-width: none; }
-  .editor-toolbar { top: 66px; }
-  .rich-editor { min-height: 460px; }
-  .rich-editor .tiptap { min-height: 460px; padding: 28px 20px; font-size: 17px; }
+  .image-control-grid { grid-template-columns: 1fr; }
+  .image-alt-control { grid-column: auto; }
+  .rich-editor { height: 520px; }
+  .rich-editor .tiptap { min-height: 100%; padding: 28px 20px; font-size: 17px; }
   .rich-editor .tiptap img[data-align="left"],
   .rich-editor .tiptap img[data-align="right"] {
     width: 100% !important;
@@ -896,6 +972,7 @@ button, input, textarea, select { font: inherit; }
   .toolbar-select { flex: 1 1 150px; }
   .toolbar-divider { display: none; }
   .toolbar-upload { flex: 1 1 100%; justify-content: center; }
-  .image-controls { align-items: stretch; flex-direction: column; }
+  .image-controls-head { align-items: stretch; flex-direction: column; }
+  .image-remove-button { width: 100%; }
   .segmented-control button { flex: 1 1 calc(50% - 5px); }
 }

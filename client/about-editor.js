@@ -80,8 +80,10 @@ function setButtonState(root, editor) {
   if (!imageSelected) return;
 
   const attributes = editor.getAttributes("image");
-  const width = root.querySelector("[data-image-width]");
-  if (width) width.value = ALLOWED_IMAGE_WIDTHS.has(String(attributes.width)) ? String(attributes.width) : "70";
+  const selectedWidth = ALLOWED_IMAGE_WIDTHS.has(String(attributes.width)) ? String(attributes.width) : "70";
+  root.querySelectorAll("[data-image-width-option]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.imageWidthOption === selectedWidth);
+  });
   const alt = root.querySelector("[data-image-alt]");
   if (alt) alt.value = String(attributes.alt || "");
   root.querySelectorAll("[data-image-align]").forEach((button) => {
@@ -188,16 +190,22 @@ export function createAboutEditor({
     });
   });
 
-  root.querySelector("[data-image-width]")?.addEventListener("change", (event) => {
-    const width = ALLOWED_IMAGE_WIDTHS.has(event.currentTarget.value)
-      ? event.currentTarget.value
-      : "70";
-    editor.chain().focus().updateAttributes("image", { width }).run();
+  root.querySelectorAll("[data-image-width-option]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const width = ALLOWED_IMAGE_WIDTHS.has(button.dataset.imageWidthOption)
+        ? button.dataset.imageWidthOption
+        : "70";
+      editor.chain().focus().updateAttributes("image", { width }).run();
+    });
   });
 
   root.querySelector("[data-image-alt]")?.addEventListener("change", (event) => {
     const alt = event.currentTarget.value.trim();
     editor.chain().focus().updateAttributes("image", { alt, title: alt || null }).run();
+  });
+
+  root.querySelector("[data-image-remove]")?.addEventListener("click", () => {
+    if (editor.isActive("image")) editor.chain().focus().deleteSelection().run();
   });
 
   return {
