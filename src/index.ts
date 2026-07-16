@@ -3,7 +3,7 @@ const MAX_JSON_BYTES = 1_000_000;
 const MAX_STORED_JSON_CHARS = 750_000;
 const MAX_IMAGE_BYTES = 15_000_000;
 const IMAGE_TYPES = new Set(["image/webp"]);
-const PAGE_SLUGS = new Set(["home", "about", "life", "services", "news", "gallery", "contact"]);
+const PAGE_SLUGS = new Set(["home", "life", "services", "news", "gallery", "contact"]);
 
 function json(data: unknown, init: ResponseInit = {}): Response {
   return Response.json(data, { ...init, headers: { ...JSON_HEADERS, ...(init.headers || {}) } });

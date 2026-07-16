@@ -417,7 +417,7 @@ function collectContentBlocks(form) {
 
 function renderPageEditor(slug) {
   destroyAboutEditor();
-  if (slug === "about") {
+  if (slug === "life") {
     renderAboutPageEditor(slug);
     return;
   }
