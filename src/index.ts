@@ -261,7 +261,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     return addCors(new Response(null, { status: 204 }), request, env);
   }
   if (request.method === "GET" && url.pathname === "/api/public/content") {
-    return addCors(json(await getContent(env), { headers: { "Cache-Control": "public, max-age=60, stale-while-revalidate=300" } }), request, env);
+    return addCors(json(await getContent(env), { headers: { "Cache-Control": "no-store, max-age=0" } }), request, env);
   }
   if (request.method === "GET" && segments[0] === "media") {
     return serveMedia(request, env, segments.slice(1).map(decodeURIComponent).join("/"));

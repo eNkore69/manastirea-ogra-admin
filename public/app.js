@@ -5,10 +5,10 @@ const app = document.querySelector("#app");
 const state = {
   auth: sessionStorage.getItem("adminAuth") || "",
   content: null,
-  section: "settings",
+  section: "dashboard",
 };
 
-const sections = ["settings", "pages", "media", "posts", "events", "services", "galleries"];
+const sections = ["dashboard", "pages", "media", "posts", "events", "services", "galleries", "settings"];
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
 const toBase64 = (value) => btoa(String.fromCharCode(...new TextEncoder().encode(value)));
 
@@ -69,10 +69,31 @@ function renderShell() {
 function renderSection() {
   document.querySelectorAll("[data-section]").forEach((button) => button.classList.toggle("active", button.dataset.section === state.section));
   document.querySelector("#section-title").textContent = L[state.section];
-  if (state.section === "settings") renderSettings();
+  if (state.section === "dashboard") renderDashboard();
+  else if (state.section === "settings") renderSettings();
   else if (state.section === "pages") renderPages();
   else if (state.section === "media") renderMedia();
   else renderCollection(state.section);
+}
+
+function renderDashboard() {
+  const stats = [
+    ["pages", Object.keys(state.content.pages || {}).length],
+    ["media", (state.content.media || []).length],
+    ["posts", (state.content.posts || []).length],
+    ["events", (state.content.events || []).length],
+    ["services", (state.content.services || []).length],
+    ["galleries", (state.content.galleries || []).length],
+  ];
+  document.querySelector("#content").innerHTML =
+    '<section class="welcome-panel"><p class="section-kicker">' + esc(L.brand) + '</p><h2>' + esc(L.dashboard) + '</h2><p>' + esc(L.dashboardIntro) + '</p></section>' +
+    '<section><div class="section-heading"><h2>' + esc(L.quickStats) + '</h2></div><div class="stats-grid">' +
+    stats.map(([key, count]) => '<button type="button" class="stat-card" data-go="' + key + '"><span>' + esc(L[key]) + '</span><strong>' + count + '</strong></button>').join("") +
+    "</div></section>";
+  document.querySelectorAll("[data-go]").forEach((button) => button.addEventListener("click", () => {
+    state.section = button.dataset.go;
+    renderSection();
+  }));
 }
 
 function field(name, label, value = "", type = "text", className = "") {
@@ -134,9 +155,28 @@ function renderPages() {
   renderPageEditor(selectedSlug);
 }
 
+function contentBlockMarkup(block = {}) {
+  return '<article class="content-block-editor" data-content-block>' +
+    '<div class="block-editor-head"><strong>' + esc(L.contentSections) + '</strong><button class="icon-button danger" type="button" data-remove-block aria-label="' + esc(L.remove) + '">×</button></div>' +
+    '<div class="form-grid">' +
+    field("blockEyebrow", L.sectionEyebrow, block.eyebrow || "") +
+    field("blockTitle", L.sectionTitle, block.title || "") +
+    field("blockText", L.sectionText, block.text || "", "textarea", "span-2") +
+    "</div></article>";
+}
+
+function collectContentBlocks(form) {
+  return [...form.querySelectorAll("[data-content-block]")].map((block) => ({
+    eyebrow: block.querySelector('[name="blockEyebrow"]').value.trim(),
+    title: block.querySelector('[name="blockTitle"]').value.trim(),
+    text: block.querySelector('[name="blockText"]').value.trim(),
+  })).filter((block) => block.eyebrow || block.title || block.text);
+}
+
 function renderPageEditor(slug) {
   const page = state.content.pages[slug];
   const target = document.querySelector("#page-editor");
+  const blocks = Array.isArray(page.body) ? page.body.filter((block) => block && typeof block === "object") : [];
   target.innerHTML = '<form id="page-form"><div class="form-grid">' +
     field("title", L.titleField, page.title) +
     field("eyebrow", L.eyebrow, page.eyebrow) +
@@ -145,20 +185,23 @@ function renderPageEditor(slug) {
     heroPreview(page.heroMediaId) +
     field("seoTitle", L.seoTitle, page.seoTitle) +
     field("seoDescription", L.seoDescription, page.seoDescription, "textarea") +
-    field("body", L.contentBlocks, JSON.stringify(page.body || [], null, 2), "textarea", "span-2") +
-    '</div><div class="actions"><button class="button button-primary" type="submit">' + esc(L.save) + "</button></div></form>";
+    '</div><section class="blocks-editor"><div class="section-heading"><h3>' + esc(L.contentSections) + '</h3><button class="button button-secondary" id="add-content-block" type="button">' + esc(L.addSection) + '</button></div><div id="content-block-list">' +
+    blocks.map(contentBlockMarkup).join("") +
+    '</div></section><div class="sticky-actions"><button class="button button-primary" type="submit">' + esc(L.save) + "</button></div></form>";
   target.querySelector("#heroMediaId").addEventListener("change", (event) => {
     target.querySelector("#hero-preview").outerHTML = heroPreview(event.currentTarget.value);
+  });
+  target.querySelector("#add-content-block").addEventListener("click", () => {
+    target.querySelector("#content-block-list").insertAdjacentHTML("beforeend", contentBlockMarkup());
+  });
+  target.addEventListener("click", (event) => {
+    const removeButton = event.target.closest("[data-remove-block]");
+    if (removeButton) removeButton.closest("[data-content-block]").remove();
   });
   target.querySelector("#page-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const values = Object.fromEntries(new FormData(event.currentTarget));
-    try {
-      values.body = JSON.parse(values.body || "[]");
-    } catch {
-      notify(L.error);
-      return;
-    }
+    values.body = collectContentBlocks(event.currentTarget);
     await api("/api/admin/pages/" + encodeURIComponent(slug), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(values) });
     state.content = await api("/api/admin/content");
     notify(L.saved);
@@ -168,13 +211,46 @@ function renderPageEditor(slug) {
 
 function renderMedia() {
   const items = state.content.media || [];
-  document.querySelector("#content").innerHTML = '<div class="panel"><form id="upload-form"><div class="form-grid"><div class="field"><label for="file">' + esc(L.file) + '</label><input id="file" name="file" type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" required></div>' + field("altText", L.altText) + '</div><div class="actions"><button class="button button-primary" type="submit">' + esc(L.upload) + '</button></div></form></div><div class="media-grid" style="margin-top:24px">' + items.map((item) => '<article class="media-card"><img src="' + esc(item.url) + '" alt="' + esc(item.alt_text) + '"><div class="media-info">' + esc(item.alt_text || item.file_name) + '</div><div class="media-actions"><button class="button button-secondary" data-home-hero="' + esc(item.id) + '" type="button">' + esc(L.useAsHomeHero) + '</button><button class="button button-danger" data-delete-media="' + esc(item.id) + '" type="button">×</button></div></article>').join("") + "</div>";
+  document.querySelector("#content").innerHTML =
+    '<section class="upload-panel"><div class="upload-copy"><p class="section-kicker">' + esc(L.media) + '</p><h2>' + esc(L.upload) + '</h2><p>' + esc(L.uploadHint) + '</p></div>' +
+    '<form id="upload-form" class="upload-form"><label class="upload-dropzone" for="file"><input id="file" name="file" type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" required><span class="upload-icon">+</span><strong>' + esc(L.file) + '</strong><small>' + esc(L.uploadHint) + '</small></label>' +
+    '<div class="selected-file-preview" id="selected-file-preview"><span>' + esc(L.selectedPreview) + '</span><div class="preview-placeholder">' + esc(L.chooseImage) + '</div></div>' +
+    field("altText", L.altText, "", "text", "upload-alt") +
+    '<div class="actions upload-actions"><button class="button button-primary" type="submit">' + esc(L.upload) + '</button></div></form></section>' +
+    '<section class="media-library"><div class="section-heading"><div><p class="section-kicker">' + esc(L.media) + '</p><h2>' + items.length + ' ' + esc(L.media).toLowerCase() + '</h2></div></div><div class="media-grid">' +
+    (items.length ? items.map((item) =>
+      '<article class="media-card"><div class="media-image-wrap"><img src="' + esc(item.url) + '" alt="' + esc(item.alt_text || item.file_name) + '" loading="lazy"></div>' +
+      '<div class="media-info"><strong>' + esc(item.alt_text || item.file_name) + '</strong><small>' + esc(item.file_name) + '</small></div>' +
+      '<div class="media-actions"><button class="button button-secondary" data-home-hero="' + esc(item.id) + '" type="button">' + esc(L.useAsHomeHero) + '</button><button class="icon-button danger" data-delete-media="' + esc(item.id) + '" type="button" aria-label="' + esc(L.remove) + '">&times;</button></div></article>'
+    ).join("") : '<div class="empty-state">' + esc(L.noItems) + "</div>") +
+    "</div></section>";
+  const fileInput = document.querySelector("#file");
+  const preview = document.querySelector("#selected-file-preview");
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files?.[0];
+    if (!file) {
+      preview.innerHTML = '<span>' + esc(L.selectedPreview) + '</span><div class="preview-placeholder">' + esc(L.chooseImage) + "</div>";
+      return;
+    }
+    const objectUrl = URL.createObjectURL(file);
+    preview.innerHTML = '<span>' + esc(L.selectedPreview) + '</span><img src="' + esc(objectUrl) + '" alt="">';
+    preview.querySelector("img").addEventListener("load", () => URL.revokeObjectURL(objectUrl), { once: true });
+  });
   document.querySelector("#upload-form").addEventListener("submit", async (event) => {
     event.preventDefault();
-    await api("/api/admin/media", { method: "POST", body: new FormData(event.currentTarget) });
-    state.content = await api("/api/admin/content");
-    notify(L.uploadSuccess);
-    renderMedia();
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    button.disabled = true;
+    button.textContent = L.loading;
+    try {
+      await api("/api/admin/media", { method: "POST", body: new FormData(event.currentTarget) });
+      state.content = await api("/api/admin/content");
+      notify(L.uploadSuccess);
+      renderMedia();
+    } catch {
+      notify(L.error);
+      button.disabled = false;
+      button.textContent = L.upload;
+    }
   });
   document.querySelectorAll("[data-delete-media]").forEach((button) => button.addEventListener("click", async () => {
     if (!confirm(L.confirmRemove)) return;
@@ -183,8 +259,15 @@ function renderMedia() {
     renderMedia();
   }));
   document.querySelectorAll("[data-home-hero]").forEach((button) => button.addEventListener("click", async () => {
-    await setPageHero("home", button.dataset.homeHero);
-    notify(L.homeHeroSet);
+    button.disabled = true;
+    try {
+      await setPageHero("home", button.dataset.homeHero);
+      notify(L.homeHeroSet);
+    } catch {
+      notify(L.error);
+    } finally {
+      button.disabled = false;
+    }
   }));
 }
 
