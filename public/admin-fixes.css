@@ -1,0 +1,56 @@
+.media-card {
+  position: static;
+}
+
+.media-card > button,
+.media-card .media-actions .button {
+  position: static;
+}
+
+.media-card .media-info {
+  padding: 10px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.media-card .media-actions {
+  display: flex;
+  gap: 7px;
+  padding: 0 10px 10px;
+}
+
+.media-card .media-actions .button-secondary {
+  flex: 1;
+  font-size: 11px;
+}
+
+.hero-preview {
+  grid-column: span 2;
+  padding: 14px;
+  background: #f3f5f7;
+  border: 1px solid var(--line);
+}
+
+.hero-preview span {
+  display: block;
+  margin-bottom: 9px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.hero-preview img {
+  width: min(100%, 420px);
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
+.hero-preview p {
+  margin: 0;
+  color: var(--muted);
+}
+
+@media (max-width: 850px) {
+  .hero-preview {
+    grid-column: auto;
+  }
+}

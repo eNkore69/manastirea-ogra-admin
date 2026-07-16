@@ -49,9 +49,9 @@ function renderLogin(message = "") {
       state.content = await api("/api/admin/content");
       sessionStorage.setItem("adminAuth", state.auth);
       renderShell();
-    } catch {
+    } catch (caught) {
       state.auth = "";
-      renderLogin(L.invalidLogin);
+      renderLogin(caught instanceof Error && caught.message === "unauthorized" ? L.invalidLogin : L.loginServerError);
     }
   });
 }
@@ -86,6 +86,31 @@ function mediaOptions(selected = "") {
   return '<option value="">' + esc(L.chooseImage) + "</option>" + (state.content.media || []).map((item) => '<option value="' + esc(item.id) + '"' + (item.id === selected ? " selected" : "") + ">" + esc(item.alt_text || item.file_name) + "</option>").join("");
 }
 
+function heroPreview(mediaId) {
+  const media = (state.content.media || []).find((item) => item.id === mediaId);
+  return '<div class="hero-preview" id="hero-preview"><span>' + esc(L.heroPreview) + '</span>' +
+    (media ? '<img src="' + esc(media.url) + '" alt="' + esc(media.alt_text || media.file_name) + '">' : '<p>' + esc(L.chooseImage) + "</p>") +
+    "</div>";
+}
+
+async function setPageHero(slug, mediaId) {
+  const page = state.content.pages[slug];
+  await api("/api/admin/pages/" + encodeURIComponent(slug), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: page.title,
+      eyebrow: page.eyebrow,
+      intro: page.intro,
+      body: page.body || [],
+      heroMediaId: mediaId,
+      seoTitle: page.seoTitle,
+      seoDescription: page.seoDescription,
+    }),
+  });
+  state.content = await api("/api/admin/content");
+}
+
 function renderSettings() {
   const data = state.content.settings || {};
   const keys = ["address", "phone", "email", "office_hours", "facebook_url", "instagram_url", "maps_url", "map_query"];
@@ -117,10 +142,14 @@ function renderPageEditor(slug) {
     field("eyebrow", L.eyebrow, page.eyebrow) +
     field("intro", L.intro, page.intro, "textarea", "span-2") +
     '<div class="field span-2"><label for="heroMediaId">' + esc(L.heroImage) + '</label><select id="heroMediaId" name="heroMediaId">' + mediaOptions(page.heroMediaId) + "</select></div>" +
+    heroPreview(page.heroMediaId) +
     field("seoTitle", L.seoTitle, page.seoTitle) +
     field("seoDescription", L.seoDescription, page.seoDescription, "textarea") +
     field("body", L.contentBlocks, JSON.stringify(page.body || [], null, 2), "textarea", "span-2") +
     '</div><div class="actions"><button class="button button-primary" type="submit">' + esc(L.save) + "</button></div></form>";
+  target.querySelector("#heroMediaId").addEventListener("change", (event) => {
+    target.querySelector("#hero-preview").outerHTML = heroPreview(event.currentTarget.value);
+  });
   target.querySelector("#page-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const values = Object.fromEntries(new FormData(event.currentTarget));
@@ -139,7 +168,7 @@ function renderPageEditor(slug) {
 
 function renderMedia() {
   const items = state.content.media || [];
-  document.querySelector("#content").innerHTML = '<div class="panel"><form id="upload-form"><div class="form-grid"><div class="field"><label for="file">' + esc(L.file) + '</label><input id="file" name="file" type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" required></div>' + field("altText", L.altText) + '</div><div class="actions"><button class="button button-primary" type="submit">' + esc(L.upload) + '</button></div></form></div><div class="media-grid" style="margin-top:24px">' + items.map((item) => '<article class="media-card"><img src="' + esc(item.url) + '" alt="' + esc(item.alt_text) + '"><div>' + esc(item.alt_text || item.file_name) + '</div><button class="button button-danger" data-delete-media="' + esc(item.id) + '" type="button">×</button></article>').join("") + "</div>";
+  document.querySelector("#content").innerHTML = '<div class="panel"><form id="upload-form"><div class="form-grid"><div class="field"><label for="file">' + esc(L.file) + '</label><input id="file" name="file" type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" required></div>' + field("altText", L.altText) + '</div><div class="actions"><button class="button button-primary" type="submit">' + esc(L.upload) + '</button></div></form></div><div class="media-grid" style="margin-top:24px">' + items.map((item) => '<article class="media-card"><img src="' + esc(item.url) + '" alt="' + esc(item.alt_text) + '"><div class="media-info">' + esc(item.alt_text || item.file_name) + '</div><div class="media-actions"><button class="button button-secondary" data-home-hero="' + esc(item.id) + '" type="button">' + esc(L.useAsHomeHero) + '</button><button class="button button-danger" data-delete-media="' + esc(item.id) + '" type="button">×</button></div></article>').join("") + "</div>";
   document.querySelector("#upload-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     await api("/api/admin/media", { method: "POST", body: new FormData(event.currentTarget) });
@@ -152,6 +181,10 @@ function renderMedia() {
     await api("/api/admin/media/" + encodeURIComponent(button.dataset.deleteMedia), { method: "DELETE" });
     state.content = await api("/api/admin/content");
     renderMedia();
+  }));
+  document.querySelectorAll("[data-home-hero]").forEach((button) => button.addEventListener("click", async () => {
+    await setPageHero("home", button.dataset.homeHero);
+    notify(L.homeHeroSet);
   }));
 }
 
