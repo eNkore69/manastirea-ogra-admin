@@ -11,6 +11,34 @@ const state = {
 const sections = ["dashboard", "pages", "media", "posts", "events", "services", "galleries", "settings"];
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
 const toBase64 = (value) => btoa(String.fromCharCode(...new TextEncoder().encode(value)));
+const MAX_MEDIA_EDGE = 2560;
+const WEBP_QUALITY = 0.86;
+
+async function convertImageToWebp(file) {
+  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  try {
+    const scale = Math.min(1, MAX_MEDIA_EDGE / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d", { alpha: true });
+    if (!context) throw new Error("canvas_unavailable");
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.drawImage(bitmap, 0, 0, width, height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/webp", WEBP_QUALITY));
+    if (!blob || blob.type !== "image/webp") throw new Error("webp_conversion_failed");
+    const baseName = file.name.replace(/\.[^.]+$/, "").replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^-+|-+$/g, "") || "imagine";
+    return new File([blob], baseName + ".webp", {
+      type: "image/webp",
+      lastModified: Date.now(),
+    });
+  } finally {
+    bitmap.close();
+  }
+}
 
 async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
@@ -213,7 +241,7 @@ function renderMedia() {
   const items = state.content.media || [];
   document.querySelector("#content").innerHTML =
     '<section class="upload-panel"><div class="upload-copy"><p class="section-kicker">' + esc(L.media) + '</p><h2>' + esc(L.upload) + '</h2><p>' + esc(L.uploadHint) + '</p></div>' +
-    '<form id="upload-form" class="upload-form"><label class="upload-dropzone" for="file"><input id="file" name="file" type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" required><span class="upload-icon">+</span><strong>' + esc(L.file) + '</strong><small>' + esc(L.uploadHint) + '</small></label>' +
+    '<form id="upload-form" class="upload-form"><label class="upload-dropzone" for="file"><input id="file" name="file" type="file" accept="image/jpeg,image/png,image/webp,image/avif" required><span class="upload-icon">+</span><strong>' + esc(L.file) + '</strong><small>' + esc(L.uploadHint) + '</small></label>' +
     '<div class="selected-file-preview" id="selected-file-preview"><span>' + esc(L.selectedPreview) + '</span><div class="preview-placeholder">' + esc(L.chooseImage) + '</div></div>' +
     field("altText", L.altText, "", "text", "upload-alt") +
     '<div class="actions upload-actions"><button class="button button-primary" type="submit">' + esc(L.upload) + '</button></div></form></section>' +
@@ -239,10 +267,19 @@ function renderMedia() {
   document.querySelector("#upload-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const button = event.currentTarget.querySelector('button[type="submit"]');
+    const originalFile = fileInput.files?.[0];
+    if (!originalFile) {
+      notify(L.imageRequired);
+      return;
+    }
     button.disabled = true;
-    button.textContent = L.loading;
+    button.textContent = L.optimizing;
     try {
-      await api("/api/admin/media", { method: "POST", body: new FormData(event.currentTarget) });
+      const webpFile = await convertImageToWebp(originalFile);
+      const uploadData = new FormData();
+      uploadData.set("file", webpFile);
+      uploadData.set("altText", String(new FormData(event.currentTarget).get("altText") || ""));
+      await api("/api/admin/media", { method: "POST", body: uploadData });
       state.content = await api("/api/admin/content");
       notify(L.uploadSuccess);
       renderMedia();

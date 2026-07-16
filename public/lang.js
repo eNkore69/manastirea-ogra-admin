@@ -53,7 +53,8 @@ export const ro = {
   seoDescription: "Descriere SEO",
   chooseImage: "Fără imagine",
   upload: "Încarcă imagine",
-  uploadHint: "Selectați JPG, PNG, WebP sau AVIF. Dimensiune maximă: 15 MB.",
+  uploadHint: "JPG, PNG, WebP sau AVIF. Imaginea este optimizată automat la maximum 2560 px și salvată în format WebP.",
+  optimizing: "Se optimizează în WebP…",
   selectedPreview: "Previzualizarea fișierului selectat",
   altText: "Descrierea imaginii (ALT)",
   file: "Fișier imagine",
@@ -73,6 +74,6 @@ export const ro = {
   galleryTitle: "Legendă",
   selectMedia: "Selectați o imagine",
   imageRequired: "Selectați o imagine.",
-  uploadSuccess: "Imaginea a fost încărcată.",
+  uploadSuccess: "Imaginea a fost optimizată și încărcată în format WebP.",
   error: "A apărut o eroare. Încercați din nou.",
 };

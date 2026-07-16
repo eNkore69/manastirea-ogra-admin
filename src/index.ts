@@ -1,7 +1,7 @@
 const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8" };
 const MAX_JSON_BYTES = 1_000_000;
 const MAX_IMAGE_BYTES = 15_000_000;
-const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/avif", "image/gif"]);
+const IMAGE_TYPES = new Set(["image/webp"]);
 const PAGE_SLUGS = new Set(["home", "about", "life", "services", "news", "gallery", "contact"]);
 
 function json(data: unknown, init: ResponseInit = {}): Response {
@@ -244,12 +244,11 @@ async function uploadMedia(request: Request, env: Env): Promise<Response> {
   if (!(file instanceof File)) return error(400, "file_required");
   if (file.size > MAX_IMAGE_BYTES) return error(413, "image_too_large");
   if (!IMAGE_TYPES.has(file.type)) return error(415, "unsupported_image_type");
-  const extension = file.name.includes(".") ? file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") : "";
-  const objectKey = "images/" + new Date().getUTCFullYear() + "/" + crypto.randomUUID() + (extension ? "." + extension : "");
-  await env.MEDIA.put(objectKey, file.stream(), { httpMetadata: { contentType: file.type, cacheControl: "public, max-age=31536000, immutable" } });
+  const objectKey = "images/" + new Date().getUTCFullYear() + "/" + crypto.randomUUID() + ".webp";
+  await env.MEDIA.put(objectKey, file.stream(), { httpMetadata: { contentType: "image/webp", cacheControl: "public, max-age=31536000, immutable" } });
   const id = crypto.randomUUID();
   await env.DB.prepare("INSERT INTO media (id, object_key, file_name, content_type, byte_size, alt_text) VALUES (?, ?, ?, ?, ?, ?)")
-    .bind(id, objectKey, file.name.slice(0, 240), file.type, file.size, cleanText(form.get("altText"), 300)).run();
+    .bind(id, objectKey, file.name.slice(0, 240), "image/webp", file.size, cleanText(form.get("altText"), 300)).run();
   return json({ ok: true, id, url: mediaUrl(env, objectKey) }, { status: 201 });
 }
 
