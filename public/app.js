@@ -7,6 +7,7 @@ const state = {
   auth: sessionStorage.getItem("adminAuth") || "",
   content: null,
   section: "dashboard",
+  mediaCategoryFilter: "all",
 };
 
 const sections = ["dashboard", "pages", "media", "posts", "events", "services", "galleries", "settings"];
@@ -24,28 +25,57 @@ function destroyAboutEditor() {
 }
 
 async function convertImageToWebp(file) {
-  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  if (!file.type.startsWith("image/")) throw new Error("unsupported_image_type");
+  if (file.size > 50_000_000) throw new Error("source_image_too_large");
+  let source;
+  let width;
+  let height;
+  let cleanup = () => {};
   try {
-    const scale = Math.min(1, MAX_MEDIA_EDGE / Math.max(bitmap.width, bitmap.height));
-    const width = Math.max(1, Math.round(bitmap.width * scale));
-    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    source = bitmap;
+    width = bitmap.width;
+    height = bitmap.height;
+    cleanup = () => bitmap.close();
+  } catch {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.decoding = "async";
+    image.src = objectUrl;
+    try {
+      await image.decode();
+      source = image;
+      width = image.naturalWidth;
+      height = image.naturalHeight;
+      cleanup = () => URL.revokeObjectURL(objectUrl);
+    } catch {
+      URL.revokeObjectURL(objectUrl);
+      throw new Error("image_decode_failed");
+    }
+  }
+  try {
+    if (!width || !height) throw new Error("image_decode_failed");
+    const scale = Math.min(1, MAX_MEDIA_EDGE / Math.max(width, height));
+    const outputWidth = Math.max(1, Math.round(width * scale));
+    const outputHeight = Math.max(1, Math.round(height * scale));
     const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = outputWidth;
+    canvas.height = outputHeight;
     const context = canvas.getContext("2d", { alpha: true });
     if (!context) throw new Error("canvas_unavailable");
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = "high";
-    context.drawImage(bitmap, 0, 0, width, height);
+    context.drawImage(source, 0, 0, outputWidth, outputHeight);
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/webp", WEBP_QUALITY));
     if (!blob || blob.type !== "image/webp") throw new Error("webp_conversion_failed");
+    if (blob.size > 15_000_000) throw new Error("image_too_large");
     const baseName = file.name.replace(/\.[^.]+$/, "").replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^-+|-+$/g, "") || "imagine";
     return new File([blob], baseName + ".webp", {
       type: "image/webp",
       lastModified: Date.now(),
     });
   } finally {
-    bitmap.close();
+    cleanup();
   }
 }
 
@@ -67,6 +97,26 @@ function notify(message) {
   node.textContent = message;
   document.body.append(node);
   setTimeout(() => node.remove(), 2600);
+}
+
+function mediaErrorMessage(caught) {
+  const code = caught instanceof Error ? caught.message : "request_failed";
+  const messages = {
+    file_required: L.imageRequired,
+    unsupported_image_type: L.unsupportedImage,
+    source_image_too_large: L.sourceImageTooLarge,
+    image_too_large: L.optimizedImageTooLarge,
+    image_decode_failed: L.imageDecodeFailed,
+    canvas_unavailable: L.imageConversionFailed,
+    webp_conversion_failed: L.imageConversionFailed,
+    category_name_required: L.categoryNameRequired,
+    category_exists: L.categoryExists,
+    category_not_found: L.categoryNotFound,
+    media_not_found: L.mediaNotFound,
+    internal_error: L.serverMediaError,
+    request_failed: L.serverMediaError,
+  };
+  return messages[code] || L.error + " [" + code + "]";
 }
 
 function logout() {
@@ -456,32 +506,106 @@ function renderPageEditor(slug) {
   });
 }
 
+function categoryOptions(selected = "", includeAll = false) {
+  const categories = state.content.mediaCategories || [];
+  const first = includeAll
+    ? '<option value="all">' + esc(L.allCategories) + '</option><option value="uncategorized">' + esc(L.uncategorized) + "</option>"
+    : '<option value="">' + esc(L.uncategorized) + "</option>";
+  return first + categories.map((category) =>
+    '<option value="' + esc(category.id) + '"' + (category.id === selected ? " selected" : "") + ">" + esc(category.name) + "</option>"
+  ).join("");
+}
+
 function renderMedia() {
   const items = state.content.media || [];
+  const categories = state.content.mediaCategories || [];
+  if (state.mediaCategoryFilter !== "all" &&
+      state.mediaCategoryFilter !== "uncategorized" &&
+      !categories.some((category) => category.id === state.mediaCategoryFilter)) {
+    state.mediaCategoryFilter = "all";
+  }
+  const visibleItems = items.filter((item) => {
+    if (state.mediaCategoryFilter === "all") return true;
+    if (state.mediaCategoryFilter === "uncategorized") return !item.category_id;
+    return item.category_id === state.mediaCategoryFilter;
+  });
   document.querySelector("#content").innerHTML =
+    '<section class="media-category-panel"><div class="category-copy"><p class="section-kicker">' + esc(L.organization) + '</p><h2>' + esc(L.imageCategories) + '</h2><p>' + esc(L.categoryHint) + '</p></div>' +
+    '<form id="category-form" class="category-create-form">' + field("categoryName", L.newCategory, "", "text") + '<button class="button button-primary" type="submit">' + esc(L.createCategory) + '</button></form>' +
+    '<div class="category-list">' + (categories.length ? categories.map((category) =>
+      '<div class="category-chip"><span>' + esc(category.name) + '</span><div><button class="category-action" data-edit-category="' + esc(category.id) + '" type="button">' + esc(L.rename) + '</button><button class="category-action danger-text" data-delete-category="' + esc(category.id) + '" type="button">' + esc(L.remove) + "</button></div></div>"
+    ).join("") : '<p class="category-empty">' + esc(L.noCategories) + "</p>") + "</div></section>" +
     '<section class="upload-panel"><div class="upload-copy"><p class="section-kicker">' + esc(L.media) + '</p><h2>' + esc(L.upload) + '</h2><p>' + esc(L.uploadHint) + '</p></div>' +
     '<form id="upload-form" class="upload-form"><label class="upload-dropzone" for="file"><input id="file" name="file" type="file" accept="image/jpeg,image/png,image/webp,image/avif" required><span class="upload-icon">+</span><strong>' + esc(L.file) + '</strong><small>' + esc(L.uploadHint) + '</small></label>' +
     '<div class="selected-file-preview" id="selected-file-preview"><span>' + esc(L.selectedPreview) + '</span><div class="preview-placeholder">' + esc(L.chooseImage) + '</div></div>' +
     field("altText", L.altText, "", "text", "upload-alt") +
+    '<div class="field upload-category"><label for="categoryId">' + esc(L.category) + '</label><select id="categoryId" name="categoryId">' + categoryOptions() + "</select></div>" +
     '<div class="actions upload-actions"><button class="button button-primary" type="submit">' + esc(L.upload) + '</button></div></form></section>' +
-    '<section class="media-library"><div class="section-heading"><div><p class="section-kicker">' + esc(L.media) + '</p><h2>' + items.length + ' ' + esc(L.media).toLowerCase() + '</h2></div></div><div class="media-grid">' +
-    (items.length ? items.map((item) =>
+    '<section class="media-library"><div class="section-heading media-library-heading"><div><p class="section-kicker">' + esc(L.mediaLibrary) + '</p><h2>' + visibleItems.length + ' / ' + items.length + ' ' + esc(L.imagesCount) + '</h2></div>' +
+    '<div class="media-library-tools"><label>' + esc(L.filterCategory) + '<select id="media-category-filter">' + categoryOptions(state.mediaCategoryFilter, true) + '</select></label>' +
+    (items.length ? '<button class="button button-danger" id="delete-all-media" type="button">' + esc(L.deleteAllImages) + "</button>" : "") + "</div></div><div class=\"media-grid\">" +
+    (visibleItems.length ? visibleItems.map((item) =>
       '<article class="media-card"><div class="media-image-wrap"><img src="' + esc(item.url) + '" alt="' + esc(item.alt_text || item.file_name) + '" loading="lazy"></div>' +
-      '<div class="media-info"><strong>' + esc(item.alt_text || item.file_name) + '</strong><small>' + esc(item.file_name) + '</small></div>' +
-      '<div class="media-actions"><button class="button button-secondary" data-home-hero="' + esc(item.id) + '" type="button">' + esc(L.useAsHomeHero) + '</button><button class="icon-button danger" data-delete-media="' + esc(item.id) + '" type="button" aria-label="' + esc(L.remove) + '">&times;</button></div></article>'
-    ).join("") : '<div class="empty-state">' + esc(L.noItems) + "</div>") +
+      '<div class="media-info">' + (item.category_name ? '<span class="media-category-badge">' + esc(item.category_name) + "</span>" : '<span class="media-category-badge muted">' + esc(L.uncategorized) + "</span>") +
+      '<strong>' + esc(item.alt_text || item.file_name) + '</strong><small>' + esc(item.file_name) + '</small></div>' +
+      '<div class="media-actions"><button class="button button-secondary" data-edit-media="' + esc(item.id) + '" type="button">' + esc(L.edit) + '</button><button class="button button-secondary" data-home-hero="' + esc(item.id) + '" type="button">' + esc(L.useAsHomeHero) + '</button><button class="icon-button danger" data-delete-media="' + esc(item.id) + '" type="button" aria-label="' + esc(L.remove) + '">&times;</button></div></article>'
+    ).join("") : '<div class="empty-state">' + esc(L.noImagesInCategory) + "</div>") +
     "</div></section>";
+
+  document.querySelector("#category-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    const name = String(new FormData(event.currentTarget).get("categoryName") || "").trim();
+    button.disabled = true;
+    try {
+      await api("/api/admin/media-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      state.content = await api("/api/admin/content");
+      notify(L.categoryCreated);
+      renderMedia();
+    } catch (caught) {
+      notify(mediaErrorMessage(caught));
+      button.disabled = false;
+    }
+  });
+
+  document.querySelectorAll("[data-edit-category]").forEach((button) => button.addEventListener("click", () => {
+    openCategoryEditor(categories.find((category) => category.id === button.dataset.editCategory));
+  }));
+  document.querySelectorAll("[data-delete-category]").forEach((button) => button.addEventListener("click", async () => {
+    if (!confirm(L.confirmDeleteCategory)) return;
+    try {
+      await api("/api/admin/media-categories/" + encodeURIComponent(button.dataset.deleteCategory), { method: "DELETE" });
+      state.content = await api("/api/admin/content");
+      notify(L.categoryDeleted);
+      renderMedia();
+    } catch (caught) {
+      notify(mediaErrorMessage(caught));
+    }
+  }));
+
+  const filter = document.querySelector("#media-category-filter");
+  filter.value = state.mediaCategoryFilter;
+  filter.addEventListener("change", () => {
+    state.mediaCategoryFilter = filter.value;
+    renderMedia();
+  });
+
   const fileInput = document.querySelector("#file");
   const preview = document.querySelector("#selected-file-preview");
+  let previewUrl = "";
   fileInput.addEventListener("change", () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
     const file = fileInput.files?.[0];
     if (!file) {
       preview.innerHTML = '<span>' + esc(L.selectedPreview) + '</span><div class="preview-placeholder">' + esc(L.chooseImage) + "</div>";
       return;
     }
-    const objectUrl = URL.createObjectURL(file);
-    preview.innerHTML = '<span>' + esc(L.selectedPreview) + '</span><img src="' + esc(objectUrl) + '" alt="">';
-    preview.querySelector("img").addEventListener("load", () => URL.revokeObjectURL(objectUrl), { once: true });
+    previewUrl = URL.createObjectURL(file);
+    preview.innerHTML = '<span>' + esc(L.selectedPreview) + '</span><img src="' + esc(previewUrl) + '" alt="">';
   });
   document.querySelector("#upload-form").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -495,36 +619,129 @@ function renderMedia() {
     button.textContent = L.optimizing;
     try {
       const webpFile = await convertImageToWebp(originalFile);
+      button.textContent = L.uploading;
+      const form = new FormData(event.currentTarget);
       const uploadData = new FormData();
       uploadData.set("file", webpFile);
-      uploadData.set("altText", String(new FormData(event.currentTarget).get("altText") || ""));
+      uploadData.set("altText", String(form.get("altText") || ""));
+      uploadData.set("categoryId", String(form.get("categoryId") || ""));
       await api("/api/admin/media", { method: "POST", body: uploadData });
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
       state.content = await api("/api/admin/content");
       notify(L.uploadSuccess);
       renderMedia();
-    } catch {
-      notify(L.error);
+    } catch (caught) {
+      notify(mediaErrorMessage(caught));
       button.disabled = false;
       button.textContent = L.upload;
     }
   });
+
+  document.querySelectorAll("[data-edit-media]").forEach((button) => button.addEventListener("click", () => {
+    openMediaEditor(items.find((item) => item.id === button.dataset.editMedia));
+  }));
   document.querySelectorAll("[data-delete-media]").forEach((button) => button.addEventListener("click", async () => {
-    if (!confirm(L.confirmRemove)) return;
-    await api("/api/admin/media/" + encodeURIComponent(button.dataset.deleteMedia), { method: "DELETE" });
-    state.content = await api("/api/admin/content");
-    renderMedia();
+    if (!confirm(L.confirmDeleteImage)) return;
+    button.disabled = true;
+    try {
+      await api("/api/admin/media/" + encodeURIComponent(button.dataset.deleteMedia), { method: "DELETE" });
+      state.content = await api("/api/admin/content");
+      notify(L.imageDeleted);
+      renderMedia();
+    } catch (caught) {
+      notify(mediaErrorMessage(caught));
+      button.disabled = false;
+    }
   }));
   document.querySelectorAll("[data-home-hero]").forEach((button) => button.addEventListener("click", async () => {
     button.disabled = true;
     try {
       await setPageHero("home", button.dataset.homeHero);
       notify(L.homeHeroSet);
-    } catch {
-      notify(L.error);
+    } catch (caught) {
+      notify(mediaErrorMessage(caught));
     } finally {
       button.disabled = false;
     }
   }));
+  document.querySelector("#delete-all-media")?.addEventListener("click", async (event) => {
+    if (!confirm(L.confirmDeleteAllImages)) return;
+    event.currentTarget.disabled = true;
+    try {
+      const result = await api("/api/admin/media", { method: "DELETE" });
+      state.mediaCategoryFilter = "all";
+      state.content = await api("/api/admin/content");
+      notify(String(result.deleted || 0) + " " + L.imagesDeleted);
+      renderMedia();
+    } catch (caught) {
+      notify(mediaErrorMessage(caught));
+      event.currentTarget.disabled = false;
+    }
+  });
+}
+
+function openCategoryEditor(category) {
+  if (!category) return;
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = '<div class="modal media-modal"><h2>' + esc(L.renameCategory) + '</h2><form id="category-edit-form">' +
+    field("name", L.categoryName, category.name) +
+    '<div class="actions"><button class="button button-secondary" data-cancel type="button">' + esc(L.cancel) + '</button><button class="button button-primary" type="submit">' + esc(L.save) + "</button></div></form></div>";
+  document.body.append(backdrop);
+  backdrop.querySelector("[data-cancel]").addEventListener("click", () => backdrop.remove());
+  backdrop.querySelector("#category-edit-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      await api("/api/admin/media-categories/" + encodeURIComponent(category.id), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: String(new FormData(event.currentTarget).get("name") || "") }),
+      });
+      backdrop.remove();
+      state.content = await api("/api/admin/content");
+      notify(L.categoryRenamed);
+      renderMedia();
+    } catch (caught) {
+      notify(mediaErrorMessage(caught));
+      button.disabled = false;
+    }
+  });
+}
+
+function openMediaEditor(item) {
+  if (!item) return;
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = '<div class="modal media-modal"><div class="media-edit-heading"><div><p class="section-kicker">' + esc(L.editImage) + '</p><h2>' + esc(item.file_name) + '</h2></div><img src="' + esc(item.url) + '" alt="' + esc(item.alt_text || item.file_name) + '"></div>' +
+    '<form id="media-edit-form"><div class="form-grid">' +
+    field("fileName", L.fileName, item.file_name) +
+    field("altText", L.altText, item.alt_text || "") +
+    '<div class="field span-2"><label for="mediaCategoryId">' + esc(L.category) + '</label><select id="mediaCategoryId" name="categoryId">' + categoryOptions(item.category_id || "") + "</select></div></div>" +
+    '<p class="form-help">' + esc(L.renameHint) + '</p><div class="actions"><button class="button button-secondary" data-cancel type="button">' + esc(L.cancel) + '</button><button class="button button-primary" type="submit">' + esc(L.save) + "</button></div></form></div>";
+  document.body.append(backdrop);
+  backdrop.querySelector("[data-cancel]").addEventListener("click", () => backdrop.remove());
+  backdrop.querySelector("#media-edit-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    button.disabled = true;
+    const payload = Object.fromEntries(new FormData(event.currentTarget));
+    try {
+      await api("/api/admin/media/" + encodeURIComponent(item.id), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      backdrop.remove();
+      state.content = await api("/api/admin/content");
+      notify(L.imageUpdated);
+      renderMedia();
+    } catch (caught) {
+      notify(mediaErrorMessage(caught));
+      button.disabled = false;
+    }
+  });
 }
 
 const definitions = {
