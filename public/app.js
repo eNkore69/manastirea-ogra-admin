@@ -575,10 +575,10 @@ function renderMedia() {
     '<div class="media-library-tools"><label>' + esc(L.filterCategory) + '<select id="media-category-filter">' + categoryOptions(state.mediaCategoryFilter, true) + '</select></label>' +
     (items.length ? '<button class="button button-danger" id="delete-all-media" type="button">' + esc(L.deleteAllImages) + "</button>" : "") + "</div></div><div class=\"media-grid\">" +
     (visibleItems.length ? visibleItems.map((item) =>
-      '<article class="media-card"><div class="media-image-wrap"><img src="' + esc(item.url) + '" alt="' + esc(item.alt_text || item.file_name) + '" loading="lazy"></div>' +
+      '<article class="media-card"><div class="media-image-wrap"><img src="' + esc(item.url) + '" alt="' + esc(item.alt_text || item.file_name) + '" loading="lazy"><button class="media-delete-button" data-delete-media="' + esc(item.id) + '" type="button" aria-label="' + esc(L.remove) + '" title="' + esc(L.remove) + '"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"></path></svg></button></div>' +
       '<div class="media-info">' + (item.category_name ? '<span class="media-category-badge">' + esc(item.category_name) + "</span>" : '<span class="media-category-badge muted">' + esc(L.uncategorized) + "</span>") +
       '<strong>' + esc(item.alt_text || item.file_name) + '</strong><small>' + esc(item.file_name) + '</small></div>' +
-      '<div class="media-actions"><button class="button button-secondary" data-edit-media="' + esc(item.id) + '" type="button">' + esc(L.edit) + '</button><button class="button button-secondary" data-home-hero="' + esc(item.id) + '" type="button">' + esc(L.useAsHomeHero) + '</button><button class="icon-button danger" data-delete-media="' + esc(item.id) + '" type="button" aria-label="' + esc(L.remove) + '">&times;</button></div></article>'
+      '<div class="media-actions"><button class="button button-secondary" data-edit-media="' + esc(item.id) + '" type="button">' + esc(L.edit) + '</button><button class="button button-secondary" data-home-hero="' + esc(item.id) + '" type="button">' + esc(L.useAsHomeHero) + '</button></div></article>'
     ).join("") : '<div class="empty-state">' + esc(L.noImagesInCategory) + "</div>") +
     "</div></section>";
 

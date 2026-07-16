@@ -865,6 +865,7 @@ button, input, textarea, select { font: inherit; }
 }
 
 .media-image-wrap {
+  position: relative;
   overflow: hidden;
   aspect-ratio: 4 / 3;
   background: #e9edf0;
@@ -879,6 +880,53 @@ button, input, textarea, select { font: inherit; }
 }
 
 .media-card:hover .media-image-wrap img { transform: scale(1.025); }
+
+.media-delete-button {
+  position: absolute;
+  top: 11px;
+  right: 11px;
+  z-index: 2;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 10px;
+  color: #fff;
+  background: rgba(133, 25, 39, 0.9);
+  box-shadow: 0 7px 20px rgba(7, 19, 31, 0.3);
+  backdrop-filter: blur(7px);
+  cursor: pointer;
+  transition: 160ms ease;
+}
+
+.media-delete-button:hover {
+  background: #a51f32;
+  box-shadow: 0 9px 24px rgba(91, 13, 26, 0.42);
+  transform: translateY(-1px) scale(1.04);
+}
+
+.media-delete-button:focus-visible {
+  outline: 3px solid rgba(255, 255, 255, 0.9);
+  outline-offset: 2px;
+}
+
+.media-delete-button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+  transform: none;
+}
+
+.media-delete-button svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 
 .media-info {
   display: grid;
@@ -918,7 +966,6 @@ button, input, textarea, select { font: inherit; }
   padding: 8px 15px 15px !important;
 }
 .media-actions .button-secondary { min-width: 0; white-space: normal; }
-.media-actions .icon-button { margin-left: auto; }
 
 .media-modal { width: min(700px, 100%); }
 .media-edit-heading {
