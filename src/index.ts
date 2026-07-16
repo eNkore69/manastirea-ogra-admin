@@ -268,7 +268,7 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
   if (url.pathname.startsWith("/api/admin/")) {
     if (!(await isAuthorized(request, env))) {
-      return json({ error: "unauthorized" }, { status: 401, headers: { "WWW-Authenticate": 'Basic realm="Manastirea Ogra Admin", charset="UTF-8"' } });
+      return json({ error: "unauthorized" }, { status: 401 });
     }
     if (request.method === "GET" && url.pathname === "/api/admin/content") return json(await getContent(env, true));
     if (request.method === "PUT" && url.pathname === "/api/admin/settings") return updateSettings(request, env);

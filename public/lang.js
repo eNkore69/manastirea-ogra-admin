@@ -3,7 +3,7 @@ export const ro = {
   brand: "Mănăstirea Ogra",
   admin: "Panou de administrare",
   loginTitle: "Autentificare",
-  loginIntro: "Introduceți datele configurate ca secrete USER_KEY și PASS_KEY în Cloudflare.",
+  loginIntro: "Autentificați-vă pentru a administra conținutul site-ului.",
   username: "Utilizator",
   password: "Parolă",
   login: "Intră în panou",
