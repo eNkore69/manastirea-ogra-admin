@@ -81,6 +81,25 @@ function parseJsonArray(value: unknown): string {
   return JSON.stringify(value).slice(0, 100_000);
 }
 
+function parseStoredArray(value: unknown): unknown[] {
+  try {
+    const parsed: unknown = JSON.parse(String(value || "[]"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function formatDisplayDate(value: unknown): string {
+  const date = new Date(String(value || ""));
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("ro-RO", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
 function mediaUrl(env: Env, objectKey: string | null): string | null {
   if (!objectKey) return null;
   return env.PUBLIC_MEDIA_URL.replace(/\/$/, "") + "/" + objectKey.split("/").map(encodeURIComponent).join("/");
@@ -109,7 +128,7 @@ async function getContent(env: Env, includeDrafts = false): Promise<Record<strin
       title: row.title,
       eyebrow: row.eyebrow,
       intro: row.intro,
-      body: JSON.parse(String(row.body_json || "[]")),
+      body: parseStoredArray(row.body_json),
       heroMediaId: row.hero_media_id,
       heroImage: mediaUrl(env, row.hero_object_key ? String(row.hero_object_key) : null),
       seoTitle: row.seo_title,
@@ -119,14 +138,14 @@ async function getContent(env: Env, includeDrafts = false): Promise<Record<strin
 
   const posts = (postsResult.results as Array<Record<string, unknown>>).map((row) => ({
     ...row,
-    body: JSON.parse(String(row.body_json || "[]")),
+    body: parseStoredArray(row.body_json),
     image_url: mediaUrl(env, row.image_object_key ? String(row.image_object_key) : null),
-    display_date: new Intl.DateTimeFormat("ro-RO", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(String(row.published_at))),
+    display_date: formatDisplayDate(row.published_at),
   }));
   const events = (eventsResult.results as Array<Record<string, unknown>>).map((row) => ({
     ...row,
     image_url: mediaUrl(env, row.image_object_key ? String(row.image_object_key) : null),
-    display_date: new Intl.DateTimeFormat("ro-RO", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(String(row.event_date))),
+    display_date: formatDisplayDate(row.event_date),
   }));
   const galleries = (galleriesResult.results as Array<Record<string, unknown>>).map((row) => ({
     ...row,
