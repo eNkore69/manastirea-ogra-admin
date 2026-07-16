@@ -36,7 +36,11 @@ async function isAuthorized(request: Request, env: Env): Promise<boolean> {
   const authorization = request.headers.get("Authorization");
   if (!authorization?.startsWith("Basic ")) return false;
   try {
-    const decoded = atob(authorization.slice(6));
+    const encodedBytes = Uint8Array.from(
+      atob(authorization.slice(6)),
+      (character) => character.charCodeAt(0),
+    );
+    const decoded = new TextDecoder().decode(encodedBytes);
     const separator = decoded.indexOf(":");
     if (separator < 0) return false;
     const user = decoded.slice(0, separator);
