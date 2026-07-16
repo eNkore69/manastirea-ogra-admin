@@ -639,7 +639,9 @@ function renderMedia() {
   });
   document.querySelector("#upload-form").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const button = event.currentTarget.querySelector('button[type="submit"]');
+    const formElement = event.currentTarget;
+    const button = formElement.querySelector('button[type="submit"]');
+    const form = new FormData(formElement);
     const originalFile = fileInput.files?.[0];
     if (!originalFile) {
       notify(L.imageRequired);
@@ -650,7 +652,6 @@ function renderMedia() {
     try {
       const webpFile = await convertImageToWebp(originalFile);
       button.textContent = L.uploading;
-      const form = new FormData(event.currentTarget);
       const uploadData = new FormData();
       uploadData.set("file", webpFile);
       uploadData.set("altText", String(form.get("altText") || ""));
@@ -1065,9 +1066,10 @@ function openGalleryEditor(item = null) {
   });
   coverSelect.addEventListener("change", renderSelected);
   backdrop.querySelector("#gallery-file-upload").addEventListener("change", async (event) => {
-    const files = [...(event.currentTarget.files || [])].slice(0, 100 - selectedImages.length);
+    const fileInputElement = event.currentTarget;
+    const files = [...(fileInputElement.files || [])].slice(0, 100 - selectedImages.length);
     if (!files.length) return;
-    event.currentTarget.disabled = true;
+    fileInputElement.disabled = true;
     count.textContent = L.galleryUploading;
     try {
       const newIds = [];
@@ -1100,7 +1102,7 @@ function openGalleryEditor(item = null) {
       openGalleryEditor(draft);
     } catch (caught) {
       notify(mediaErrorMessage(caught));
-      event.currentTarget.disabled = false;
+      fileInputElement.disabled = false;
       renderSelected();
     }
   });
