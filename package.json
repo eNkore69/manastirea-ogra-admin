@@ -3,17 +3,26 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "check": "npm run types && tsc --noEmit",
+    "build:editor": "esbuild client/about-editor.js --bundle --format=esm --target=es2022 --outfile=public/about-editor.js --minify",
+    "dev": "npm run build:editor && wrangler dev",
+    "deploy": "npm run build:editor && wrangler deploy",
+    "check": "npm run build:editor && npm run types && tsc --noEmit",
     "types": "wrangler types --env-file .dev.vars.example",
     "migrate:local": "wrangler d1 migrations apply manastire-main --local",
     "migrate:remote": "wrangler d1 migrations apply manastire-main --remote",
-    "dry-run": "wrangler deploy --dry-run"
+    "dry-run": "npm run build:editor && wrangler deploy --dry-run"
   },
   "devDependencies": {
     "@types/node": "latest",
+    "esbuild": "^0.28.1",
     "typescript": "latest",
     "wrangler": "latest"
+  },
+  "dependencies": {
+    "@tiptap/core": "^3.27.1",
+    "@tiptap/extension-image": "^3.27.1",
+    "@tiptap/extension-placeholder": "^3.27.1",
+    "@tiptap/extension-text-style": "^3.27.1",
+    "@tiptap/starter-kit": "^3.27.1"
   }
 }

@@ -1,5 +1,6 @@
 const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8" };
 const MAX_JSON_BYTES = 1_000_000;
+const MAX_STORED_JSON_CHARS = 750_000;
 const MAX_IMAGE_BYTES = 15_000_000;
 const IMAGE_TYPES = new Set(["image/webp"]);
 const PAGE_SLUGS = new Set(["home", "about", "life", "services", "news", "gallery", "contact"]);
@@ -78,7 +79,9 @@ function cleanInteger(value: unknown): number {
 
 function parseJsonArray(value: unknown): string {
   if (!Array.isArray(value)) return "[]";
-  return JSON.stringify(value).slice(0, 100_000);
+  const serialized = JSON.stringify(value);
+  if (serialized.length > MAX_STORED_JSON_CHARS) throw new Error("content_too_large");
+  return serialized;
 }
 
 function parseStoredArray(value: unknown): unknown[] {
@@ -309,6 +312,7 @@ export default {
       const message = caught instanceof Error ? caught.message : "unknown_error";
       console.error(JSON.stringify({ message: "request_failed", error: message, path: new URL(request.url).pathname }));
       if (message === "payload_too_large") return error(413, message);
+      if (message === "content_too_large") return error(413, message);
       if (message === "invalid_json") return error(400, message);
       return error(500, "internal_error");
     }

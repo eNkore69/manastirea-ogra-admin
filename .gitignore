@@ -5,3 +5,4 @@ node_modules/
 .env.*
 worker-configuration.d.ts
 manastire-ogra-admin/
+/public/about-editor.js

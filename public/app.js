@@ -1,4 +1,5 @@
 import { ro as L } from "./lang.js";
+import { createAboutEditor } from "./about-editor.js";
 
 document.title = L.title;
 const app = document.querySelector("#app");
@@ -13,6 +14,14 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&":
 const toBase64 = (value) => btoa(String.fromCharCode(...new TextEncoder().encode(value)));
 const MAX_MEDIA_EDGE = 2560;
 const WEBP_QUALITY = 0.86;
+let activeAboutEditor = null;
+let aboutImageUploadActive = false;
+
+function destroyAboutEditor() {
+  activeAboutEditor?.destroy();
+  activeAboutEditor = null;
+  aboutImageUploadActive = false;
+}
 
 async function convertImageToWebp(file) {
   const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
@@ -61,6 +70,7 @@ function notify(message) {
 }
 
 function logout() {
+  destroyAboutEditor();
   state.auth = "";
   state.content = null;
   sessionStorage.removeItem("adminAuth");
@@ -95,6 +105,7 @@ function renderShell() {
 }
 
 function renderSection() {
+  destroyAboutEditor();
   document.querySelectorAll("[data-section]").forEach((button) => button.classList.toggle("active", button.dataset.section === state.section));
   document.querySelector("#section-title").textContent = L[state.section];
   if (state.section === "dashboard") renderDashboard();
@@ -174,6 +185,7 @@ function renderSettings() {
 }
 
 function renderPages() {
+  destroyAboutEditor();
   const pages = state.content.pages || {};
   const slugs = Object.keys(pages);
   const selectedSlug = document.querySelector("#page-select")?.value || slugs[0] || "home";
@@ -181,6 +193,205 @@ function renderPages() {
   const select = document.querySelector("#page-select");
   select.addEventListener("change", () => renderPageEditor(select.value));
   renderPageEditor(selectedSlug);
+}
+
+function richTextNode(text, marks = []) {
+  return text ? { type: "text", text: String(text), ...(marks.length ? { marks } : {}) } : null;
+}
+
+function legacyAboutDocument(blocks) {
+  const stored = blocks.find((block) =>
+    block &&
+    block.type === "richText" &&
+    block.doc &&
+    block.doc.type === "doc" &&
+    Array.isArray(block.doc.content)
+  );
+  if (stored) return stored.doc;
+
+  const content = [];
+  blocks.forEach((block) => {
+    if (!block || typeof block !== "object") return;
+    if (block.eyebrow) {
+      content.push({
+        type: "paragraph",
+        content: [richTextNode(block.eyebrow, [
+          { type: "bold" },
+          { type: "textStyle", attrs: { fontSize: "14px" } },
+        ])].filter(Boolean),
+      });
+    }
+    if (block.title) {
+      content.push({
+        type: "heading",
+        attrs: { level: 2 },
+        content: [richTextNode(block.title)].filter(Boolean),
+      });
+    }
+    String(block.text || "")
+      .split(/\n+/)
+      .map((paragraph) => paragraph.trim())
+      .filter(Boolean)
+      .forEach((paragraph) => {
+        content.push({
+          type: "paragraph",
+          content: [richTextNode(paragraph)].filter(Boolean),
+        });
+      });
+  });
+
+  return {
+    type: "doc",
+    content: content.length ? content : [{ type: "paragraph" }],
+  };
+}
+
+function normalizeAboutDocument(document) {
+  const mediaUrls = new Set((state.content.media || []).map((item) => String(item.url || "")));
+  const alignments = new Set(["left", "center", "right", "full"]);
+  const widths = new Set(["35", "50", "70", "100"]);
+  const fontSizes = new Set(["14px", "16px", "20px", "26px"]);
+
+  function normalizeNode(node) {
+    if (!node || typeof node !== "object" || typeof node.type !== "string") return null;
+    if (node.type === "image") {
+      const src = String(node.attrs?.src || "");
+      if (!mediaUrls.has(src)) return null;
+      const align = alignments.has(String(node.attrs?.align)) ? String(node.attrs.align) : "center";
+      const width = widths.has(String(node.attrs?.width)) ? String(node.attrs.width) : "70";
+      const alt = String(node.attrs?.alt || "").trim().slice(0, 300);
+      return {
+        type: "image",
+        attrs: { src, alt, title: alt || null, align, width },
+      };
+    }
+    if (node.type === "text") {
+      const marks = (Array.isArray(node.marks) ? node.marks : []).map((mark) => {
+        if (mark?.type === "bold" || mark?.type === "italic" || mark?.type === "code") return { type: mark.type };
+        if (mark?.type === "textStyle" && fontSizes.has(String(mark.attrs?.fontSize))) {
+          return { type: "textStyle", attrs: { fontSize: String(mark.attrs.fontSize) } };
+        }
+        return null;
+      }).filter(Boolean);
+      return {
+        type: "text",
+        text: String(node.text || ""),
+        ...(marks.length ? { marks } : {}),
+      };
+    }
+    const content = (Array.isArray(node.content) ? node.content : []).map(normalizeNode).filter(Boolean);
+    const normalized = { type: node.type };
+    if (node.type === "heading") normalized.attrs = { level: node.attrs?.level === 3 ? 3 : 2 };
+    if (content.length) normalized.content = content;
+    return normalized;
+  }
+
+  const normalized = normalizeNode(document);
+  return normalized?.type === "doc" ? normalized : { type: "doc", content: [{ type: "paragraph" }] };
+}
+
+function aboutEditorMarkup(page) {
+  return '<form id="page-form"><div class="form-grid">' +
+    field("title", L.titleField, page.title) +
+    field("eyebrow", L.eyebrow, page.eyebrow) +
+    field("intro", L.intro, page.intro, "textarea", "span-2") +
+    '<div class="field span-2"><label for="heroMediaId">' + esc(L.heroImage) + '</label><select id="heroMediaId" name="heroMediaId">' + mediaOptions(page.heroMediaId) + "</select></div>" +
+    heroPreview(page.heroMediaId) +
+    field("seoTitle", L.seoTitle, page.seoTitle) +
+    field("seoDescription", L.seoDescription, page.seoDescription, "textarea") +
+    '</div><section class="about-editor-section" data-about-editor-root>' +
+    '<div class="about-editor-heading"><div><p class="section-kicker">' + esc(L.fullPageEditor) + '</p><h3>' + esc(L.aboutEditorTitle) + '</h3><p>' + esc(L.aboutEditorIntro) + '</p></div><span class="editor-status" data-editor-upload-status>' + esc(L.inlineImageReady) + '</span></div>' +
+    '<div class="editor-shell"><div class="editor-toolbar" role="toolbar" aria-label="' + esc(L.editorToolbar) + '">' +
+    '<select class="toolbar-select" data-editor-block-style aria-label="' + esc(L.paragraphStyle) + '">' +
+    '<option value="paragraph">' + esc(L.paragraph) + '</option><option value="heading-2">' + esc(L.heading2) + '</option><option value="heading-3">' + esc(L.heading3) + '</option></select>' +
+    '<select class="toolbar-select" data-editor-text-size aria-label="' + esc(L.textSize) + '">' +
+    '<option value="">' + esc(L.normalSize) + '</option><option value="14px">' + esc(L.smallSize) + '</option><option value="16px">' + esc(L.normalSize) + '</option><option value="20px">' + esc(L.largeSize) + '</option><option value="26px">' + esc(L.featuredSize) + '</option></select>' +
+    '<span class="toolbar-divider" aria-hidden="true"></span>' +
+    '<button type="button" class="editor-button" data-editor-command="bold" title="' + esc(L.bold) + '" aria-label="' + esc(L.bold) + '"><strong>B</strong></button>' +
+    '<button type="button" class="editor-button" data-editor-command="italic" title="' + esc(L.italic) + '" aria-label="' + esc(L.italic) + '"><em>I</em></button>' +
+    '<button type="button" class="editor-button" data-editor-command="bulletList" title="' + esc(L.bulletList) + '" aria-label="' + esc(L.bulletList) + '"><span aria-hidden="true">&bull;&#8801;</span></button>' +
+    '<button type="button" class="editor-button" data-editor-command="orderedList" title="' + esc(L.orderedList) + '" aria-label="' + esc(L.orderedList) + '"><span aria-hidden="true">1&#8801;</span></button>' +
+    '<button type="button" class="editor-button" data-editor-command="blockquote" title="' + esc(L.blockquote) + '" aria-label="' + esc(L.blockquote) + '"><span aria-hidden="true">&ldquo;</span></button>' +
+    '<button type="button" class="editor-button" data-editor-command="undo" title="' + esc(L.undo) + '" aria-label="' + esc(L.undo) + '"><span aria-hidden="true">&#8630;</span></button>' +
+    '<button type="button" class="editor-button" data-editor-command="redo" title="' + esc(L.redo) + '" aria-label="' + esc(L.redo) + '"><span aria-hidden="true">&#8631;</span></button>' +
+    '<span class="toolbar-divider" aria-hidden="true"></span>' +
+    '<label class="toolbar-upload"><input data-inline-image-input type="file" accept="image/jpeg,image/png,image/webp,image/avif"><span>' + esc(L.insertImage) + '</span></label>' +
+    '</div><div class="image-controls" data-image-controls hidden><strong>' + esc(L.imagePosition) + '</strong>' +
+    '<div class="segmented-control" aria-label="' + esc(L.imagePosition) + '">' +
+    '<button type="button" data-image-align="left">' + esc(L.alignLeft) + '</button><button type="button" data-image-align="center">' + esc(L.alignCenter) + '</button><button type="button" data-image-align="right">' + esc(L.alignRight) + '</button><button type="button" data-image-align="full">' + esc(L.alignFull) + '</button></div>' +
+    '<label>' + esc(L.imageSize) + '<select data-image-width><option value="35">35%</option><option value="50">50%</option><option value="70">70%</option><option value="100">100%</option></select></label>' +
+    '<label class="image-alt-control">' + esc(L.imageAlt) + '<input data-image-alt type="text" maxlength="300"></label></div>' +
+    '<div class="rich-editor" data-about-editor></div></div></section>' +
+    '<div class="sticky-actions"><button class="button button-primary" type="submit">' + esc(L.save) + "</button></div></form>";
+}
+
+async function uploadInlineImage(file) {
+  const webpFile = await convertImageToWebp(file);
+  const alt = file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim();
+  const uploadData = new FormData();
+  uploadData.set("file", webpFile);
+  uploadData.set("altText", alt);
+  const result = await api("/api/admin/media", { method: "POST", body: uploadData });
+  state.content = await api("/api/admin/content");
+  return { url: result.url, alt };
+}
+
+function renderAboutPageEditor(slug) {
+  const page = state.content.pages[slug];
+  const target = document.querySelector("#page-editor");
+  const blocks = Array.isArray(page.body) ? page.body.filter((block) => block && typeof block === "object") : [];
+  target.innerHTML = aboutEditorMarkup(page);
+
+  target.querySelector("#heroMediaId").addEventListener("change", (event) => {
+    target.querySelector("#hero-preview").outerHTML = heroPreview(event.currentTarget.value);
+  });
+
+  const editorRoot = target.querySelector("[data-about-editor-root]");
+  const uploadStatus = target.querySelector("[data-editor-upload-status]");
+  const uploadInput = target.querySelector("[data-inline-image-input]");
+  activeAboutEditor = createAboutEditor({
+    root: editorRoot,
+    element: target.querySelector("[data-about-editor]"),
+    content: legacyAboutDocument(blocks),
+    labels: { placeholder: L.editorPlaceholder },
+    uploadImage: uploadInlineImage,
+    onUploadState: (uploading) => {
+      aboutImageUploadActive = uploading;
+      uploadInput.disabled = uploading;
+      uploadStatus.textContent = uploading ? L.inlineImageUploading : L.inlineImageReady;
+      uploadStatus.classList.toggle("loading", uploading);
+    },
+    onError: () => notify(L.inlineImageError),
+  });
+
+  target.querySelector("#page-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (aboutImageUploadActive) {
+      notify(L.inlineImageWait);
+      return;
+    }
+    const saveButton = event.currentTarget.querySelector('button[type="submit"]');
+    saveButton.disabled = true;
+    try {
+      const values = Object.fromEntries(new FormData(event.currentTarget));
+      values.body = [{
+        type: "richText",
+        version: 1,
+        doc: normalizeAboutDocument(activeAboutEditor.getJSON()),
+      }];
+      await api("/api/admin/pages/" + encodeURIComponent(slug), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values),
+      });
+      state.content = await api("/api/admin/content");
+      notify(L.saved);
+      renderPages();
+    } catch {
+      notify(L.error);
+      saveButton.disabled = false;
+    }
+  });
 }
 
 function contentBlockMarkup(block = {}) {
@@ -202,6 +413,11 @@ function collectContentBlocks(form) {
 }
 
 function renderPageEditor(slug) {
+  destroyAboutEditor();
+  if (slug === "about") {
+    renderAboutPageEditor(slug);
+    return;
+  }
   const page = state.content.pages[slug];
   const target = document.querySelector("#page-editor");
   const blocks = Array.isArray(page.body) ? page.body.filter((block) => block && typeof block === "object") : [];
