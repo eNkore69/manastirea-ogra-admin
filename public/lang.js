@@ -9,6 +9,7 @@ export const ro = {
   login: "Intră în panou",
   logout: "Ieșire",
   invalidLogin: "Datele de autentificare nu sunt corecte.",
+  loginServerError: "Autentificarea a reușit, dar baza de date nu este configurată sau nu este disponibilă.",
   loading: "Se încarcă…",
   saved: "Modificările au fost salvate.",
   save: "Salvează",
