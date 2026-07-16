@@ -8,20 +8,19 @@ const state = {
   content: null,
   section: "dashboard",
   mediaCategoryFilter: "all",
+  eventTab: "news",
 };
 
-const sections = ["dashboard", "pages", "media", "posts", "events", "services", "galleries", "settings"];
+const sections = ["dashboard", "pages", "media", "events", "services", "galleries", "settings"];
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
 const toBase64 = (value) => btoa(String.fromCharCode(...new TextEncoder().encode(value)));
 const MAX_MEDIA_EDGE = 2560;
 const WEBP_QUALITY = 0.86;
 let activeAboutEditor = null;
-let aboutImageUploadActive = false;
 
 function destroyAboutEditor() {
   activeAboutEditor?.destroy();
   activeAboutEditor = null;
-  aboutImageUploadActive = false;
 }
 
 async function convertImageToWebp(file) {
@@ -113,6 +112,13 @@ function mediaErrorMessage(caught) {
     category_exists: L.categoryExists,
     category_not_found: L.categoryNotFound,
     media_not_found: L.mediaNotFound,
+    title_required: L.titleRequired,
+    slug_exists: L.slugExists,
+    invalid_calendar_date: L.invalidCalendarDate,
+    calendar_date_exists: L.calendarDateExists,
+    gallery_images_required: L.galleryImagesRequired,
+    gallery_not_found: L.galleryNotFound,
+    church_event_not_found: L.churchEventNotFound,
     internal_error: L.serverMediaError,
     request_failed: L.serverMediaError,
   };
@@ -162,6 +168,8 @@ function renderSection() {
   else if (state.section === "settings") renderSettings();
   else if (state.section === "pages") renderPages();
   else if (state.section === "media") renderMedia();
+  else if (state.section === "events") renderEventsHub();
+  else if (state.section === "galleries") renderGalleries();
   else renderCollection(state.section);
 }
 
@@ -169,8 +177,7 @@ function renderDashboard() {
   const stats = [
     ["pages", Object.keys(state.content.pages || {}).length],
     ["media", (state.content.media || []).length],
-    ["posts", (state.content.posts || []).length],
-    ["events", (state.content.events || []).length],
+    ["events", (state.content.posts || []).length + (state.content.churchCalendar || []).length],
     ["services", (state.content.services || []).length],
     ["galleries", (state.content.galleries || []).length],
   ];
@@ -340,18 +347,10 @@ function normalizeAboutDocument(document) {
   return normalized?.type === "doc" ? normalized : { type: "doc", content: [{ type: "paragraph" }] };
 }
 
-function aboutEditorMarkup(page) {
-  return '<form id="page-form" class="about-page-form"><div class="form-grid">' +
-    field("title", L.titleField, page.title) +
-    field("eyebrow", L.eyebrow, page.eyebrow) +
-    field("intro", L.intro, page.intro, "textarea", "span-2") +
-    '<div class="field span-2"><label for="heroMediaId">' + esc(L.heroImage) + '</label><select id="heroMediaId" name="heroMediaId">' + mediaOptions(page.heroMediaId) + "</select></div>" +
-    heroPreview(page.heroMediaId) +
-    field("seoTitle", L.seoTitle, page.seoTitle) +
-    field("seoDescription", L.seoDescription, page.seoDescription, "textarea") +
-    '</div><section class="about-editor-section" data-about-editor-root>' +
-    '<div class="about-editor-heading"><div><p class="section-kicker">' + esc(L.fullPageEditor) + '</p><h3>' + esc(L.aboutEditorTitle) + '</h3><p>' + esc(L.aboutEditorIntro) + '</p></div><span class="editor-status" data-editor-upload-status>' + esc(L.inlineImageReady) + '</span></div>' +
-    '<div class="editor-shell"><div class="editor-toolbar" role="toolbar" aria-label="' + esc(L.editorToolbar) + '">' +
+function richEditorMarkup({ kicker, title, intro, toolbarLabel }) {
+  return '<section class="about-editor-section" data-about-editor-root>' +
+    '<div class="about-editor-heading"><div><p class="section-kicker">' + esc(kicker) + '</p><h3>' + esc(title) + '</h3><p>' + esc(intro) + '</p></div><span class="editor-status" data-editor-upload-status>' + esc(L.inlineImageReady) + '</span></div>' +
+    '<div class="editor-shell"><div class="editor-toolbar" role="toolbar" aria-label="' + esc(toolbarLabel) + '">' +
     '<select class="toolbar-select" data-editor-block-style aria-label="' + esc(L.paragraphStyle) + '">' +
     '<option value="paragraph">' + esc(L.paragraph) + '</option><option value="heading-2">' + esc(L.heading2) + '</option><option value="heading-3">' + esc(L.heading3) + '</option></select>' +
     '<select class="toolbar-select" data-editor-text-size aria-label="' + esc(L.textSize) + '">' +
@@ -374,7 +373,25 @@ function aboutEditorMarkup(page) {
     '<section class="image-control-group"><span class="image-control-label">' + esc(L.imageSize) + '</span><div class="segmented-control size-control" aria-label="' + esc(L.imageSize) + '">' +
     '<button type="button" data-image-width-option="35">' + esc(L.imageSmall) + '</button><button type="button" data-image-width-option="50">' + esc(L.imageMedium) + '</button><button type="button" data-image-width-option="70">' + esc(L.imageLarge) + '</button><button type="button" data-image-width-option="100">100%</button></div></section>' +
     '<label class="image-alt-control">' + esc(L.imageAlt) + '<input data-image-alt type="text" maxlength="300"></label></div></div>' +
-    '<div class="rich-editor" data-about-editor></div></div></section>' +
+    '<div class="rich-editor" data-about-editor aria-label="' + esc(toolbarLabel) + '"></div></div></section>';
+}
+
+function aboutEditorMarkup(page) {
+  return '<form id="page-form" class="about-page-form"><div class="form-grid">' +
+    field("title", L.titleField, page.title) +
+    field("eyebrow", L.eyebrow, page.eyebrow) +
+    field("intro", L.intro, page.intro, "textarea", "span-2") +
+    '<div class="field span-2"><label for="heroMediaId">' + esc(L.heroImage) + '</label><select id="heroMediaId" name="heroMediaId">' + mediaOptions(page.heroMediaId) + "</select></div>" +
+    heroPreview(page.heroMediaId) +
+    field("seoTitle", L.seoTitle, page.seoTitle) +
+    field("seoDescription", L.seoDescription, page.seoDescription, "textarea") +
+    "</div>" +
+    richEditorMarkup({
+      kicker: L.fullPageEditor,
+      title: L.aboutEditorTitle,
+      intro: L.aboutEditorIntro,
+      toolbarLabel: L.editorToolbar,
+    }) +
     '<div class="sticky-actions"><button class="button button-primary" type="submit">' + esc(L.save) + "</button></div></form>";
 }
 
@@ -389,6 +406,31 @@ async function uploadInlineImage(file) {
   return { url: result.url, alt };
 }
 
+function mountActiveRichEditor(root, blocks, placeholder) {
+  const uploadStatus = root.querySelector("[data-editor-upload-status]");
+  const uploadInput = root.querySelector("[data-inline-image-input]");
+  let uploading = false;
+  const editor = createAboutEditor({
+    root,
+    element: root.querySelector("[data-about-editor]"),
+    content: legacyAboutDocument(Array.isArray(blocks) ? blocks : []),
+    labels: { placeholder },
+    uploadImage: uploadInlineImage,
+    onUploadState: (nextUploading) => {
+      uploading = nextUploading;
+      uploadInput.disabled = nextUploading;
+      uploadStatus.textContent = nextUploading ? L.inlineImageUploading : L.inlineImageReady;
+      uploadStatus.classList.toggle("loading", nextUploading);
+    },
+    onError: (caught) => notify(mediaErrorMessage(caught)),
+  });
+  activeAboutEditor = editor;
+  return {
+    getJSON: () => editor.getJSON(),
+    isUploading: () => uploading,
+  };
+}
+
 function renderAboutPageEditor(slug) {
   const page = state.content.pages[slug];
   const target = document.querySelector("#page-editor");
@@ -399,27 +441,15 @@ function renderAboutPageEditor(slug) {
     target.querySelector("#hero-preview").outerHTML = heroPreview(event.currentTarget.value);
   });
 
-  const editorRoot = target.querySelector("[data-about-editor-root]");
-  const uploadStatus = target.querySelector("[data-editor-upload-status]");
-  const uploadInput = target.querySelector("[data-inline-image-input]");
-  activeAboutEditor = createAboutEditor({
-    root: editorRoot,
-    element: target.querySelector("[data-about-editor]"),
-    content: legacyAboutDocument(blocks),
-    labels: { placeholder: L.editorPlaceholder },
-    uploadImage: uploadInlineImage,
-    onUploadState: (uploading) => {
-      aboutImageUploadActive = uploading;
-      uploadInput.disabled = uploading;
-      uploadStatus.textContent = uploading ? L.inlineImageUploading : L.inlineImageReady;
-      uploadStatus.classList.toggle("loading", uploading);
-    },
-    onError: () => notify(L.inlineImageError),
-  });
+  const editorController = mountActiveRichEditor(
+    target.querySelector("[data-about-editor-root]"),
+    blocks,
+    L.editorPlaceholder,
+  );
 
   target.querySelector("#page-form").addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (aboutImageUploadActive) {
+    if (editorController.isUploading()) {
       notify(L.inlineImageWait);
       return;
     }
@@ -430,7 +460,7 @@ function renderAboutPageEditor(slug) {
       values.body = [{
         type: "richText",
         version: 1,
-        doc: normalizeAboutDocument(activeAboutEditor.getJSON()),
+        doc: normalizeAboutDocument(editorController.getJSON()),
       }];
       await api("/api/admin/pages/" + encodeURIComponent(slug), {
         method: "PUT",
@@ -744,30 +774,377 @@ function openMediaEditor(item) {
   });
 }
 
+function richBodyFromEditor(controller) {
+  return [{
+    type: "richText",
+    version: 1,
+    doc: normalizeAboutDocument(controller.getJSON()),
+  }];
+}
+
+function closeEditorModal(backdrop) {
+  destroyAboutEditor();
+  backdrop.remove();
+}
+
+function publishedCheckbox(name, checked) {
+  return '<label class="checkbox content-published"><input name="' + name + '" type="checkbox"' + (checked ? " checked" : "") + "><span><strong>" + esc(L.published) + "</strong><small>" + esc(L.publishedHint) + "</small></span></label>";
+}
+
+function renderEventsHub() {
+  destroyAboutEditor();
+  const news = state.content.posts || [];
+  const church = state.content.churchCalendar || [];
+  const isNews = state.eventTab === "news";
+  const items = isNews ? news : church;
+  document.querySelector("#content").innerHTML =
+    '<section class="content-hub-header"><div><p class="section-kicker">' + esc(L.events) + '</p><h2>' + esc(L.eventsWorkspaceTitle) + '</h2><p>' + esc(L.eventsWorkspaceIntro) + '</p></div><div class="content-tabs" role="tablist">' +
+    '<button type="button" data-event-tab="news" class="' + (isNews ? "active" : "") + '">' + esc(L.newsUpdates) + '</button>' +
+    '<button type="button" data-event-tab="church" class="' + (!isNews ? "active" : "") + '">' + esc(L.churchEvents) + "</button></div></section>" +
+    '<section class="panel content-manager"><div class="section-heading"><div><p class="section-kicker">' + esc(isNews ? L.newsUpdates : L.churchCalendar) + '</p><h2>' + esc(isNews ? L.newsListTitle : L.churchListTitle) + '</h2></div><button class="button button-primary" id="add-content-item" type="button">' + esc(isNews ? L.addNews : L.addChurchEvent) + '</button></div>' +
+    '<div class="manager-list">' + (items.length ? items.map((item) =>
+      '<article class="manager-card"><div class="manager-card-date">' + esc(isNews ? item.display_date : item.display_date) + '</div><div class="manager-card-copy"><span class="status-pill ' + (item.is_published ? "published" : "draft") + '">' + esc(item.is_published ? L.published : L.draft) + '</span><h3>' + esc(item.title) + '</h3><p>' + esc(item.excerpt || "") + '</p></div><div class="row-actions"><button class="button button-secondary" data-edit-content="' + esc(item.id) + '" type="button">' + esc(L.edit) + '</button><button class="button button-danger" data-delete-content="' + esc(item.id) + '" type="button">' + esc(L.remove) + "</button></div></article>"
+    ).join("") : '<div class="empty-state">' + esc(isNews ? L.noNewsItems : L.noChurchItems) + "</div>") + "</div></section>";
+
+  document.querySelectorAll("[data-event-tab]").forEach((button) => button.addEventListener("click", () => {
+    state.eventTab = button.dataset.eventTab;
+    renderEventsHub();
+  }));
+  document.querySelector("#add-content-item").addEventListener("click", () => {
+    if (isNews) openNewsEditor();
+    else openChurchEventEditor();
+  });
+  document.querySelectorAll("[data-edit-content]").forEach((button) => button.addEventListener("click", () => {
+    const item = items.find((candidate) => candidate.id === button.dataset.editContent);
+    if (isNews) openNewsEditor(item);
+    else openChurchEventEditor(item);
+  }));
+  document.querySelectorAll("[data-delete-content]").forEach((button) => button.addEventListener("click", async () => {
+    if (!confirm(L.confirmRemove)) return;
+    const path = isNews ? "/api/admin/posts/" : "/api/admin/church-calendar/";
+    try {
+      await api(path + encodeURIComponent(button.dataset.deleteContent), { method: "DELETE" });
+      state.content = await api("/api/admin/content");
+      notify(L.deleted);
+      renderEventsHub();
+    } catch (caught) {
+      notify(mediaErrorMessage(caught));
+    }
+  }));
+}
+
+function openNewsEditor(item = null) {
+  destroyAboutEditor();
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const date = String(item?.published_at || new Date().toISOString()).slice(0, 10);
+  backdrop.innerHTML = '<div class="modal modal-workspace"><div class="workspace-modal-heading"><div><p class="section-kicker">' + esc(L.newsUpdates) + '</p><h2>' + esc(item ? L.editNews : L.addNews) + '</h2><p>' + esc(L.newsEditorIntro) + '</p></div><button class="icon-button" data-close-editor type="button" aria-label="' + esc(L.cancel) + '">×</button></div>' +
+    '<form id="news-editor-form"><div class="form-grid">' +
+    field("title", L.titleField, item?.title || "") +
+    field("slug", L.slug, item?.slug || "") +
+    field("excerpt", L.excerpt, item?.excerpt || "", "textarea", "span-2") +
+    field("publishedAt", L.publishedAt, date, "date") +
+    '<div class="field"><label for="imageMediaId">' + esc(L.image) + '</label><select id="imageMediaId" name="imageMediaId">' + mediaOptions(item?.image_media_id || "") + "</select></div>" +
+    '<div class="span-2">' + publishedCheckbox("isPublished", Boolean(item?.is_published)) + "</div></div>" +
+    richEditorMarkup({
+      kicker: L.fullPageEditor,
+      title: L.newsEditorTitle,
+      intro: L.newsEditorDescription,
+      toolbarLabel: L.newsEditorTitle,
+    }) +
+    '<div class="sticky-actions"><button class="button button-secondary" data-close-editor type="button">' + esc(L.cancel) + '</button><button class="button button-primary" type="submit">' + esc(L.save) + "</button></div></form></div>";
+  document.body.append(backdrop);
+  const editorController = mountActiveRichEditor(
+    backdrop.querySelector("[data-about-editor-root]"),
+    item?.body || [],
+    L.newsEditorPlaceholder,
+  );
+  backdrop.querySelectorAll("[data-close-editor]").forEach((button) => button.addEventListener("click", () => closeEditorModal(backdrop)));
+  backdrop.querySelector("#news-editor-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (editorController.isUploading()) {
+      notify(L.inlineImageWait);
+      return;
+    }
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    button.disabled = true;
+    const data = Object.fromEntries(new FormData(event.currentTarget));
+    data.isPublished = event.currentTarget.elements.isPublished.checked;
+    data.body = richBodyFromEditor(editorController);
+    try {
+      await api("/api/admin/posts" + (item ? "/" + encodeURIComponent(item.id) : ""), {
+        method: item ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      closeEditorModal(backdrop);
+      state.content = await api("/api/admin/content");
+      notify(L.saved);
+      renderEventsHub();
+    } catch (caught) {
+      notify(mediaErrorMessage(caught));
+      button.disabled = false;
+    }
+  });
+}
+
+function openChurchEventEditor(item = null) {
+  destroyAboutEditor();
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const calendarDate = item?.month_day ? new Date().getFullYear() + "-" + item.month_day : "";
+  backdrop.innerHTML = '<div class="modal modal-workspace"><div class="workspace-modal-heading"><div><p class="section-kicker">' + esc(L.churchCalendar) + '</p><h2>' + esc(item ? L.editChurchEvent : L.addChurchEvent) + '</h2><p>' + esc(L.churchEditorIntro) + '</p></div><button class="icon-button" data-close-editor type="button" aria-label="' + esc(L.cancel) + '">×</button></div>' +
+    '<form id="church-editor-form"><div class="form-grid">' +
+    field("calendarDate", L.calendarDate, calendarDate, "date") +
+    field("title", L.saintTitle, item?.title || "") +
+    field("excerpt", L.saintExcerpt, item?.excerpt || "", "textarea", "span-2") +
+    '<div class="field span-2"><label for="imageMediaId">' + esc(L.saintImage) + '</label><select id="imageMediaId" name="imageMediaId">' + mediaOptions(item?.image_media_id || "") + "</select></div>" +
+    '<div class="span-2">' + publishedCheckbox("isPublished", Boolean(item?.is_published)) + "</div></div>" +
+    richEditorMarkup({
+      kicker: L.fullPageEditor,
+      title: L.churchEditorTitle,
+      intro: L.churchEditorDescription,
+      toolbarLabel: L.churchEditorTitle,
+    }) +
+    '<div class="sticky-actions"><button class="button button-secondary" data-close-editor type="button">' + esc(L.cancel) + '</button><button class="button button-primary" type="submit">' + esc(L.save) + "</button></div></form></div>";
+  document.body.append(backdrop);
+  const editorController = mountActiveRichEditor(
+    backdrop.querySelector("[data-about-editor-root]"),
+    item?.body || [],
+    L.churchEditorPlaceholder,
+  );
+  backdrop.querySelectorAll("[data-close-editor]").forEach((button) => button.addEventListener("click", () => closeEditorModal(backdrop)));
+  backdrop.querySelector("#church-editor-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (editorController.isUploading()) {
+      notify(L.inlineImageWait);
+      return;
+    }
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    button.disabled = true;
+    const data = Object.fromEntries(new FormData(event.currentTarget));
+    data.isPublished = event.currentTarget.elements.isPublished.checked;
+    data.body = richBodyFromEditor(editorController);
+    try {
+      await api("/api/admin/church-calendar" + (item ? "/" + encodeURIComponent(item.id) : ""), {
+        method: item ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      closeEditorModal(backdrop);
+      state.content = await api("/api/admin/content");
+      notify(L.saved);
+      renderEventsHub();
+    } catch (caught) {
+      notify(mediaErrorMessage(caught));
+      button.disabled = false;
+    }
+  });
+}
+
+function renderGalleries() {
+  destroyAboutEditor();
+  const galleries = state.content.galleries || [];
+  document.querySelector("#content").innerHTML =
+    '<section class="content-hub-header"><div><p class="section-kicker">' + esc(L.galleries) + '</p><h2>' + esc(L.galleryWorkspaceTitle) + '</h2><p>' + esc(L.galleryWorkspaceIntro) + '</p></div><button class="button button-primary" id="add-gallery" type="button">' + esc(L.addGallery) + '</button></section>' +
+    '<section class="gallery-manager-grid">' + (galleries.length ? galleries.map((gallery) =>
+      '<article class="gallery-manager-card">' + (gallery.cover_url ? '<img src="' + esc(gallery.cover_url) + '" alt="' + esc(gallery.cover_alt || gallery.title) + '" loading="lazy">' : '<div class="gallery-cover-placeholder">✦</div>') +
+      '<div class="gallery-manager-copy"><div><span class="status-pill ' + (gallery.is_published ? "published" : "draft") + '">' + esc(gallery.is_published ? L.published : L.draft) + '</span><span class="type-pill">' + esc(gallery.gallery_type === "story" ? L.galleryStory : L.galleryPhotos) + '</span></div><h3>' + esc(gallery.title) + '</h3><p>' + esc(gallery.excerpt || "") + '</p><small>' + gallery.images.length + " " + esc(L.imagesCount) + " · " + esc(gallery.display_date || "") + '</small></div>' +
+      '<div class="gallery-manager-actions"><button class="button button-secondary" data-edit-gallery="' + esc(gallery.id) + '" type="button">' + esc(L.edit) + '</button><button class="button button-danger" data-delete-gallery="' + esc(gallery.id) + '" type="button">' + esc(L.remove) + "</button></div></article>"
+    ).join("") : '<div class="empty-state">' + esc(L.noGalleries) + "</div>") + "</section>";
+  document.querySelector("#add-gallery").addEventListener("click", () => openGalleryEditor());
+  document.querySelectorAll("[data-edit-gallery]").forEach((button) => button.addEventListener("click", () => {
+    openGalleryEditor(galleries.find((gallery) => gallery.id === button.dataset.editGallery));
+  }));
+  document.querySelectorAll("[data-delete-gallery]").forEach((button) => button.addEventListener("click", async () => {
+    if (!confirm(L.confirmDeleteGallery)) return;
+    try {
+      await api("/api/admin/galleries/" + encodeURIComponent(button.dataset.deleteGallery), { method: "DELETE" });
+      state.content = await api("/api/admin/content");
+      notify(L.deleted);
+      renderGalleries();
+    } catch (caught) {
+      notify(mediaErrorMessage(caught));
+    }
+  }));
+}
+
+function openGalleryEditor(item = null) {
+  destroyAboutEditor();
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const media = state.content.media || [];
+  let selectedImages = (item?.images || []).map((image, index) => ({
+    mediaId: image.media_id,
+    caption: image.caption || "",
+    sortOrder: index,
+  }));
+  backdrop.innerHTML = '<div class="modal modal-workspace gallery-workspace"><div class="workspace-modal-heading"><div><p class="section-kicker">' + esc(L.galleries) + '</p><h2>' + esc(item ? L.editGallery : L.addGallery) + '</h2><p>' + esc(L.galleryEditorIntro) + '</p></div><button class="icon-button" data-close-editor type="button" aria-label="' + esc(L.cancel) + '">×</button></div>' +
+    '<form id="gallery-editor-form"><div class="form-grid">' +
+    field("title", L.titleField, item?.title || "") +
+    field("slug", L.slug, item?.slug || "") +
+    field("excerpt", L.excerpt, item?.excerpt || "", "textarea", "span-2") +
+    '<div class="field"><label for="galleryType">' + esc(L.galleryType) + '</label><select id="galleryType" name="galleryType"><option value="story"' + (item?.gallery_type === "story" ? " selected" : "") + ">" + esc(L.galleryStory) + '</option><option value="photos"' + (item?.gallery_type !== "story" ? " selected" : "") + ">" + esc(L.galleryPhotos) + "</option></select></div>" +
+    field("publishedAt", L.publishedAt, String(item?.published_at || new Date().toISOString()).slice(0, 10), "date") +
+    '<div class="field span-2"><label for="coverMediaId">' + esc(L.galleryCover) + '</label><select id="coverMediaId" name="coverMediaId">' + mediaOptions(item?.cover_media_id || "") + "</select></div>" +
+    '<div class="span-2">' + publishedCheckbox("isPublished", Boolean(item?.is_published)) + "</div></div>" +
+    '<div id="gallery-rich-editor">' + richEditorMarkup({
+      kicker: L.fullPageEditor,
+      title: L.galleryDescriptionEditor,
+      intro: L.galleryDescriptionIntro,
+      toolbarLabel: L.galleryDescriptionEditor,
+    }) + "</div>" +
+    '<section class="album-builder"><div class="section-heading"><div><p class="section-kicker">' + esc(L.galleryAlbum) + '</p><h3>' + esc(L.galleryImagesTitle) + '</h3><p>' + esc(L.galleryImagesIntro) + '</p></div><span id="gallery-image-count" class="editor-status"></span></div>' +
+    '<div class="gallery-source-actions"><label class="toolbar-upload gallery-upload"><input id="gallery-file-upload" type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple><span>' + esc(L.uploadGalleryImages) + '</span></label></div>' +
+    '<div class="media-picker-grid" id="gallery-media-picker">' + (media.length ? media.map((image) =>
+      '<button type="button" class="media-picker-card" data-pick-media="' + esc(image.id) + '"><img src="' + esc(image.url) + '" alt="' + esc(image.alt_text || image.file_name) + '" loading="lazy"><span>' + esc(image.alt_text || image.file_name) + "</span></button>"
+    ).join("") : '<p class="empty-state">' + esc(L.noItems) + "</p>") + '</div><div id="gallery-selected-images" class="selected-gallery-images"></div></section>' +
+    '<div class="sticky-actions"><button class="button button-secondary" data-close-editor type="button">' + esc(L.cancel) + '</button><button class="button button-primary" type="submit">' + esc(L.save) + "</button></div></form></div>";
+  document.body.append(backdrop);
+  const editorController = mountActiveRichEditor(
+    backdrop.querySelector("[data-about-editor-root]"),
+    item?.body || [],
+    L.galleryEditorPlaceholder,
+  );
+  const typeSelect = backdrop.querySelector("#galleryType");
+  const richSection = backdrop.querySelector("#gallery-rich-editor");
+  const coverSelect = backdrop.querySelector("#coverMediaId");
+  const picker = backdrop.querySelector("#gallery-media-picker");
+  const selectedList = backdrop.querySelector("#gallery-selected-images");
+  const count = backdrop.querySelector("#gallery-image-count");
+
+  const refreshPicker = () => {
+    picker.querySelectorAll("[data-pick-media]").forEach((button) => {
+      button.classList.toggle("selected", selectedImages.some((image) => image.mediaId === button.dataset.pickMedia));
+    });
+  };
+  const renderSelected = () => {
+    count.textContent = selectedImages.length + " " + L.imagesCount;
+    selectedList.innerHTML = selectedImages.length ? selectedImages.map((selected, index) => {
+      const image = (state.content.media || []).find((candidate) => candidate.id === selected.mediaId);
+      if (!image) return "";
+      return '<article class="selected-gallery-card" data-selected-media="' + esc(selected.mediaId) + '"><div class="selected-gallery-preview"><img src="' + esc(image.url) + '" alt="' + esc(image.alt_text || image.file_name) + '">' + (coverSelect.value === selected.mediaId ? '<span>' + esc(L.coverBadge) + "</span>" : "") + '</div><div class="selected-gallery-copy"><strong>' + esc(image.alt_text || image.file_name) + '</strong><label>' + esc(L.imageCaption) + '<input data-gallery-caption value="' + esc(selected.caption) + '" maxlength="300"></label></div><div class="selected-gallery-actions"><button type="button" data-gallery-image-action="cover">' + esc(L.setAsCover) + '</button><button type="button" data-gallery-image-action="up"' + (index === 0 ? " disabled" : "") + '>↑</button><button type="button" data-gallery-image-action="down"' + (index === selectedImages.length - 1 ? " disabled" : "") + '>↓</button><button type="button" data-gallery-image-action="remove">×</button></div></article>';
+    }).join("") : '<div class="empty-state">' + esc(L.noGalleryImages) + "</div>";
+    refreshPicker();
+  };
+  const updateType = () => {
+    richSection.hidden = typeSelect.value !== "story";
+  };
+  typeSelect.addEventListener("change", updateType);
+  updateType();
+  picker.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-pick-media]");
+    if (!button) return;
+    const index = selectedImages.findIndex((image) => image.mediaId === button.dataset.pickMedia);
+    if (index >= 0) selectedImages.splice(index, 1);
+    else selectedImages.push({ mediaId: button.dataset.pickMedia, caption: "", sortOrder: selectedImages.length });
+    if (!coverSelect.value && selectedImages.length) coverSelect.value = selectedImages[0].mediaId;
+    renderSelected();
+  });
+  selectedList.addEventListener("input", (event) => {
+    const card = event.target.closest("[data-selected-media]");
+    if (!card || !event.target.matches("[data-gallery-caption]")) return;
+    const selected = selectedImages.find((image) => image.mediaId === card.dataset.selectedMedia);
+    if (selected) selected.caption = event.target.value;
+  });
+  selectedList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-gallery-image-action]");
+    const card = event.target.closest("[data-selected-media]");
+    if (!button || !card) return;
+    const index = selectedImages.findIndex((image) => image.mediaId === card.dataset.selectedMedia);
+    if (index < 0) return;
+    const action = button.dataset.galleryImageAction;
+    if (action === "remove") {
+      const [removed] = selectedImages.splice(index, 1);
+      if (coverSelect.value === removed.mediaId) coverSelect.value = selectedImages[0]?.mediaId || "";
+    }
+    if (action === "cover") coverSelect.value = selectedImages[index].mediaId;
+    if (action === "up" && index > 0) [selectedImages[index - 1], selectedImages[index]] = [selectedImages[index], selectedImages[index - 1]];
+    if (action === "down" && index < selectedImages.length - 1) [selectedImages[index + 1], selectedImages[index]] = [selectedImages[index], selectedImages[index + 1]];
+    renderSelected();
+  });
+  coverSelect.addEventListener("change", renderSelected);
+  backdrop.querySelector("#gallery-file-upload").addEventListener("change", async (event) => {
+    const files = [...(event.currentTarget.files || [])].slice(0, 100 - selectedImages.length);
+    if (!files.length) return;
+    event.currentTarget.disabled = true;
+    count.textContent = L.galleryUploading;
+    try {
+      const newIds = [];
+      for (const file of files) {
+        const webpFile = await convertImageToWebp(file);
+        const uploadData = new FormData();
+        uploadData.set("file", webpFile);
+        uploadData.set("altText", file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " "));
+        const result = await api("/api/admin/media", { method: "POST", body: uploadData });
+        newIds.push(result.id);
+      }
+      state.content = await api("/api/admin/content");
+      newIds.forEach((mediaId) => selectedImages.push({ mediaId, caption: "", sortOrder: selectedImages.length }));
+      const draftBody = richBodyFromEditor(editorController);
+      const draftCoverMediaId = coverSelect.value || selectedImages[0]?.mediaId || "";
+      const draft = {
+        ...(item || {}),
+        title: backdrop.querySelector('[name="title"]').value,
+        slug: backdrop.querySelector('[name="slug"]').value,
+        excerpt: backdrop.querySelector('[name="excerpt"]').value,
+        gallery_type: typeSelect.value,
+        published_at: backdrop.querySelector('[name="publishedAt"]').value,
+        cover_media_id: draftCoverMediaId,
+        is_published: backdrop.querySelector('[name="isPublished"]').checked ? 1 : 0,
+        body: draftBody,
+        images: selectedImages.map((image) => ({ media_id: image.mediaId, caption: image.caption })),
+      };
+      notify(L.uploadSuccess);
+      closeEditorModal(backdrop);
+      openGalleryEditor(draft);
+    } catch (caught) {
+      notify(mediaErrorMessage(caught));
+      event.currentTarget.disabled = false;
+      renderSelected();
+    }
+  });
+  backdrop.querySelectorAll("[data-close-editor]").forEach((button) => button.addEventListener("click", () => closeEditorModal(backdrop)));
+  backdrop.querySelector("#gallery-editor-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (editorController.isUploading()) {
+      notify(L.inlineImageWait);
+      return;
+    }
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    button.disabled = true;
+    const data = Object.fromEntries(new FormData(event.currentTarget));
+    data.isPublished = event.currentTarget.elements.isPublished.checked;
+    data.body = typeSelect.value === "story" ? richBodyFromEditor(editorController) : [];
+    data.images = selectedImages.map((image, index) => ({ ...image, sortOrder: index }));
+    try {
+      await api("/api/admin/galleries" + (item?.id ? "/" + encodeURIComponent(item.id) : ""), {
+        method: item?.id ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      closeEditorModal(backdrop);
+      state.content = await api("/api/admin/content");
+      notify(L.saved);
+      renderGalleries();
+    } catch (caught) {
+      notify(mediaErrorMessage(caught));
+      button.disabled = false;
+    }
+  });
+  renderSelected();
+}
+
 const definitions = {
-  posts: [
-    ["slug", "slug", "text"], ["title", "titleField", "text"], ["excerpt", "excerpt", "textarea"],
-    ["body", "body", "json"], ["imageMediaId", "image", "media"], ["publishedAt", "publishedAt", "datetime-local"], ["isPublished", "published", "checkbox"],
-  ],
-  events: [
-    ["title", "titleField", "text"], ["excerpt", "excerpt", "textarea"], ["eventDate", "eventDate", "datetime-local"],
-    ["imageMediaId", "image", "media"], ["isPublished", "published", "checkbox"],
-  ],
   services: [
     ["dayLabel", "dayLabel", "text"], ["timeLabel", "timeLabel", "text"], ["serviceName", "serviceName", "text"],
     ["sortOrder", "sortOrder", "number"], ["isVisible", "visible", "checkbox"],
-  ],
-  galleries: [
-    ["title", "galleryTitle", "text"], ["mediaId", "selectMedia", "media"], ["sortOrder", "sortOrder", "number"], ["isVisible", "visible", "checkbox"],
   ],
 };
 
 function itemValue(collection, item, key) {
   const maps = {
-    posts: { imageMediaId: "image_media_id", publishedAt: "published_at", isPublished: "is_published" },
-    events: { eventDate: "event_date", imageMediaId: "image_media_id", isPublished: "is_published" },
     services: { dayLabel: "day_label", timeLabel: "time_label", serviceName: "service_name", sortOrder: "sort_order", isVisible: "is_visible" },
-    galleries: { mediaId: "media_id", sortOrder: "sort_order", isVisible: "is_visible" },
   };
   return item[maps[collection]?.[key] || key] ?? "";
 }

@@ -4,6 +4,8 @@ const MAX_STORED_JSON_CHARS = 750_000;
 const MAX_IMAGE_BYTES = 15_000_000;
 const IMAGE_TYPES = new Set(["image/webp"]);
 const PAGE_SLUGS = new Set(["home", "life", "services", "news", "gallery", "contact"]);
+const GALLERY_TYPES = new Set(["story", "photos"]);
+const MAX_GALLERY_IMAGES = 100;
 
 function json(data: unknown, init: ResponseInit = {}): Response {
   return Response.json(data, { ...init, headers: { ...JSON_HEADERS, ...(init.headers || {}) } });
@@ -87,6 +89,71 @@ function cleanMediaFileName(value: unknown, fallback = "imagine.webp"): string {
   return stem + ".webp";
 }
 
+function cleanSlug(value: unknown, fallback = "continut"): string {
+  const normalized = cleanText(value, 180)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 150);
+  return normalized || fallback;
+}
+
+function cleanMonthDay(value: unknown): string {
+  const raw = cleanText(value, 10);
+  const match = raw.match(/^(?:\d{4}-)?(\d{2})-(\d{2})$/);
+  if (!match) throw new Error("invalid_calendar_date");
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  const date = new Date(Date.UTC(2024, month - 1, day));
+  if (date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    throw new Error("invalid_calendar_date");
+  }
+  return match[1] + "-" + match[2];
+}
+
+function currentMonthDay(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Bucharest",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const month = parts.find((part) => part.type === "month")?.value || "01";
+  const day = parts.find((part) => part.type === "day")?.value || "01";
+  return month + "-" + day;
+}
+
+function formatMonthDay(value: unknown): string {
+  const match = String(value || "").match(/^(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  const date = new Date(Date.UTC(2024, Number(match[1]) - 1, Number(match[2])));
+  return new Intl.DateTimeFormat("ro-RO", {
+    day: "2-digit",
+    month: "long",
+    timeZone: "UTC",
+  }).format(date);
+}
+
+function parseGalleryImages(value: unknown): Array<{ mediaId: string; caption: string; sortOrder: number }> {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const images: Array<{ mediaId: string; caption: string; sortOrder: number }> = [];
+  for (const item of value.slice(0, MAX_GALLERY_IMAGES)) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    const mediaId = cleanText(record.mediaId, 100);
+    if (!mediaId || seen.has(mediaId)) continue;
+    seen.add(mediaId);
+    images.push({
+      mediaId,
+      caption: cleanText(record.caption, 300),
+      sortOrder: images.length,
+    });
+  }
+  return images;
+}
+
 function parseJsonArray(value: unknown): string {
   if (!Array.isArray(value)) return "[]";
   const serialized = JSON.stringify(value);
@@ -150,13 +217,55 @@ function removeStoredImages(value: unknown): string {
 
 async function getContent(env: Env, includeDrafts = false): Promise<Record<string, unknown>> {
   const publishedFilter = includeDrafts ? "" : " WHERE is_published = 1";
-  const [settingsResult, pagesResult, postsResult, eventsResult, servicesResult, galleriesResult, mediaResult, categoriesResult] = await env.DB.batch([
+  const galleryFilter = includeDrafts ? "" : " WHERE a.is_published = 1";
+  const churchFilter = includeDrafts ? "" : " WHERE c.is_published = 1";
+  const postsQuery = includeDrafts
+    ? "SELECT p.*, m.object_key AS image_object_key, m.alt_text AS image_alt FROM posts p LEFT JOIN media m ON m.id = p.image_media_id" + publishedFilter + " ORDER BY published_at DESC"
+    : "SELECT p.id, p.slug, p.title, p.excerpt, p.image_media_id, p.published_at, p.is_published, " +
+      "m.object_key AS image_object_key, m.alt_text AS image_alt FROM posts p LEFT JOIN media m ON m.id = p.image_media_id" +
+      publishedFilter + " ORDER BY published_at DESC";
+  const galleriesQuery = includeDrafts
+    ? "SELECT a.*, m.object_key AS cover_object_key, m.alt_text AS cover_alt " +
+      "FROM gallery_albums a LEFT JOIN media m ON m.id = a.cover_media_id" +
+      galleryFilter + " ORDER BY a.published_at DESC, a.created_at DESC"
+    : "SELECT a.id, a.slug, a.title, a.excerpt, a.gallery_type, a.cover_media_id, a.published_at, a.is_published, " +
+      "m.object_key AS cover_object_key, m.alt_text AS cover_alt, " +
+      "(SELECT COUNT(*) FROM gallery_album_images gi WHERE gi.gallery_id = a.id) AS image_count " +
+      "FROM gallery_albums a LEFT JOIN media m ON m.id = a.cover_media_id" +
+      galleryFilter + " ORDER BY a.published_at DESC, a.created_at DESC";
+  const galleryImagesQuery = includeDrafts
+    ? "SELECT gi.id, gi.gallery_id, gi.media_id, gi.caption, gi.sort_order, " +
+      "m.object_key, m.alt_text, m.file_name FROM gallery_album_images gi " +
+      "JOIN gallery_albums a ON a.id = gi.gallery_id " +
+      "JOIN media m ON m.id = gi.media_id ORDER BY gi.gallery_id, gi.sort_order, gi.created_at"
+    : "SELECT id, gallery_id, media_id, caption, sort_order, '' AS object_key, '' AS alt_text, '' AS file_name " +
+      "FROM gallery_album_images WHERE 1 = 0";
+  const churchQuery = includeDrafts
+    ? "SELECT c.*, m.object_key AS image_object_key, m.alt_text AS image_alt " +
+      "FROM church_calendar_entries c LEFT JOIN media m ON m.id = c.image_media_id" +
+      churchFilter + " ORDER BY c.month_day"
+    : "SELECT c.id, c.month_day, c.title, c.excerpt, c.image_media_id, c.is_published, " +
+      "m.object_key AS image_object_key, m.alt_text AS image_alt " +
+      "FROM church_calendar_entries c LEFT JOIN media m ON m.id = c.image_media_id" +
+      churchFilter + " ORDER BY c.month_day";
+  const [
+    settingsResult,
+    pagesResult,
+    postsResult,
+    servicesResult,
+    galleriesResult,
+    galleryImagesResult,
+    churchResult,
+    mediaResult,
+    categoriesResult,
+  ] = await env.DB.batch([
     env.DB.prepare("SELECT key, value FROM settings ORDER BY key"),
     env.DB.prepare("SELECT p.*, m.object_key AS hero_object_key FROM pages p LEFT JOIN media m ON m.id = p.hero_media_id ORDER BY p.slug"),
-    env.DB.prepare("SELECT p.*, m.object_key AS image_object_key, m.alt_text AS image_alt FROM posts p LEFT JOIN media m ON m.id = p.image_media_id" + publishedFilter + " ORDER BY published_at DESC"),
-    env.DB.prepare("SELECT e.*, m.object_key AS image_object_key, m.alt_text AS image_alt FROM events e LEFT JOIN media m ON m.id = e.image_media_id" + publishedFilter + " ORDER BY event_date DESC"),
+    env.DB.prepare(postsQuery),
     env.DB.prepare("SELECT * FROM services" + (includeDrafts ? "" : " WHERE is_visible = 1") + " ORDER BY sort_order, day_label"),
-    env.DB.prepare("SELECT g.*, m.object_key, m.alt_text FROM gallery_items g JOIN media m ON m.id = g.media_id" + (includeDrafts ? "" : " WHERE g.is_visible = 1") + " ORDER BY g.sort_order, g.created_at DESC"),
+    env.DB.prepare(galleriesQuery),
+    env.DB.prepare(galleryImagesQuery),
+    env.DB.prepare(churchQuery),
     env.DB.prepare("SELECT m.*, c.name AS category_name FROM media m LEFT JOIN media_categories c ON c.id = m.category_id ORDER BY m.created_at DESC"),
     env.DB.prepare("SELECT id, name, created_at FROM media_categories ORDER BY name COLLATE NOCASE"),
   ]);
@@ -186,15 +295,36 @@ async function getContent(env: Env, includeDrafts = false): Promise<Record<strin
     image_url: mediaUrl(env, row.image_object_key ? String(row.image_object_key) : null),
     display_date: formatDisplayDate(row.published_at),
   }));
-  const events = (eventsResult.results as Array<Record<string, unknown>>).map((row) => ({
-    ...row,
-    image_url: mediaUrl(env, row.image_object_key ? String(row.image_object_key) : null),
-    display_date: formatDisplayDate(row.event_date),
-  }));
+  const imagesByGallery = new Map<string, Array<Record<string, unknown>>>();
+  for (const row of galleryImagesResult.results as Array<Record<string, unknown>>) {
+    const galleryId = String(row.gallery_id);
+    const images = imagesByGallery.get(galleryId) || [];
+    images.push({
+      id: row.id,
+      media_id: row.media_id,
+      caption: row.caption,
+      sort_order: row.sort_order,
+      alt_text: row.alt_text,
+      file_name: row.file_name,
+      url: mediaUrl(env, String(row.object_key)),
+    });
+    imagesByGallery.set(galleryId, images);
+  }
   const galleries = (galleriesResult.results as Array<Record<string, unknown>>).map((row) => ({
     ...row,
-    image_url: mediaUrl(env, String(row.object_key)),
+    body: parseStoredArray(row.body_json),
+    cover_url: mediaUrl(env, row.cover_object_key ? String(row.cover_object_key) : null),
+    display_date: formatDisplayDate(row.published_at),
+    images: imagesByGallery.get(String(row.id)) || [],
   }));
+  const churchCalendar = (churchResult.results as Array<Record<string, unknown>>).map((row) => ({
+    ...row,
+    body: parseStoredArray(row.body_json),
+    image_url: mediaUrl(env, row.image_object_key ? String(row.image_object_key) : null),
+    display_date: formatMonthDay(row.month_day),
+  }));
+  const todayKey = currentMonthDay();
+  const todayChurchEvent = churchCalendar.find((item) => String((item as Record<string, unknown>).month_day) === todayKey) || null;
   const media = (mediaResult.results as Array<Record<string, unknown>>).map((row) => ({
     ...row,
     url: mediaUrl(env, String(row.object_key)),
@@ -204,11 +334,71 @@ async function getContent(env: Env, includeDrafts = false): Promise<Record<strin
     settings,
     pages,
     posts,
-    events,
+    events: [],
     services: servicesResult.results,
     galleries,
+    churchCalendar,
+    todayChurchEvent,
     media,
     mediaCategories: categoriesResult.results,
+  };
+}
+
+async function getPublicPost(env: Env, slug: string): Promise<Record<string, unknown> | null> {
+  const row = await env.DB.prepare(
+    "SELECT p.*, m.object_key AS image_object_key, m.alt_text AS image_alt FROM posts p " +
+    "LEFT JOIN media m ON m.id = p.image_media_id WHERE p.slug = ? AND p.is_published = 1",
+  ).bind(slug).first<Record<string, unknown>>();
+  if (!row) return null;
+  return {
+    ...row,
+    body: parseStoredArray(row.body_json),
+    image_url: mediaUrl(env, row.image_object_key ? String(row.image_object_key) : null),
+    display_date: formatDisplayDate(row.published_at),
+  };
+}
+
+async function getPublicGallery(env: Env, slug: string): Promise<Record<string, unknown> | null> {
+  const gallery = await env.DB.prepare(
+    "SELECT a.*, m.object_key AS cover_object_key, m.alt_text AS cover_alt FROM gallery_albums a " +
+    "LEFT JOIN media m ON m.id = a.cover_media_id WHERE a.slug = ? AND a.is_published = 1",
+  ).bind(slug).first<Record<string, unknown>>();
+  if (!gallery) return null;
+  const imagesResult = await env.DB.prepare(
+    "SELECT gi.id, gi.media_id, gi.caption, gi.sort_order, m.object_key, m.alt_text, m.file_name " +
+    "FROM gallery_album_images gi JOIN media m ON m.id = gi.media_id " +
+    "WHERE gi.gallery_id = ? ORDER BY gi.sort_order, gi.created_at",
+  ).bind(String(gallery.id)).all<Record<string, unknown>>();
+  return {
+    ...gallery,
+    body: parseStoredArray(gallery.body_json),
+    cover_url: mediaUrl(env, gallery.cover_object_key ? String(gallery.cover_object_key) : null),
+    display_date: formatDisplayDate(gallery.published_at),
+    images: imagesResult.results.map((row) => ({
+      id: row.id,
+      media_id: row.media_id,
+      caption: row.caption,
+      sort_order: row.sort_order,
+      alt_text: row.alt_text,
+      file_name: row.file_name,
+      url: mediaUrl(env, String(row.object_key)),
+    })),
+  };
+}
+
+async function getPublicChurchEntry(env: Env, monthDay: string): Promise<Record<string, unknown> | null> {
+  const normalized = cleanMonthDay(monthDay);
+  const row = await env.DB.prepare(
+    "SELECT c.*, m.object_key AS image_object_key, m.alt_text AS image_alt " +
+    "FROM church_calendar_entries c LEFT JOIN media m ON m.id = c.image_media_id " +
+    "WHERE c.month_day = ? AND c.is_published = 1",
+  ).bind(normalized).first<Record<string, unknown>>();
+  if (!row) return null;
+  return {
+    ...row,
+    body: parseStoredArray(row.body_json),
+    image_url: mediaUrl(env, row.image_object_key ? String(row.image_object_key) : null),
+    display_date: formatMonthDay(row.month_day),
   };
 }
 
@@ -244,17 +434,16 @@ async function createItem(request: Request, env: Env, collection: string): Promi
   const body = await readJson(request);
   const id = crypto.randomUUID();
   if (collection === "posts") {
+    const title = cleanText(body.title, 200);
+    if (!title) return error(400, "title_required");
+    const slug = cleanSlug(body.slug || title, "noutate");
+    const existing = await env.DB.prepare("SELECT id FROM posts WHERE slug = ?").bind(slug).first();
+    if (existing) return error(409, "slug_exists");
     await env.DB.prepare("INSERT INTO posts (id, slug, title, excerpt, body_json, image_media_id, published_at, is_published) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .bind(id, cleanText(body.slug, 160), cleanText(body.title, 200), cleanText(body.excerpt, 500), parseJsonArray(body.body), cleanText(body.imageMediaId, 100) || null, cleanText(body.publishedAt, 40) || new Date().toISOString(), cleanBoolean(body.isPublished)).run();
-  } else if (collection === "events") {
-    await env.DB.prepare("INSERT INTO events (id, title, excerpt, event_date, image_media_id, is_published) VALUES (?, ?, ?, ?, ?, ?)")
-      .bind(id, cleanText(body.title, 200), cleanText(body.excerpt, 500), cleanText(body.eventDate, 40), cleanText(body.imageMediaId, 100) || null, cleanBoolean(body.isPublished)).run();
+      .bind(id, slug, title, cleanText(body.excerpt, 500), parseJsonArray(body.body), cleanText(body.imageMediaId, 100) || null, cleanText(body.publishedAt, 40) || new Date().toISOString(), cleanBoolean(body.isPublished)).run();
   } else if (collection === "services") {
     await env.DB.prepare("INSERT INTO services (id, day_label, time_label, service_name, sort_order, is_visible) VALUES (?, ?, ?, ?, ?, ?)")
       .bind(id, cleanText(body.dayLabel, 100), cleanText(body.timeLabel, 100), cleanText(body.serviceName, 200), cleanInteger(body.sortOrder), cleanBoolean(body.isVisible)).run();
-  } else if (collection === "galleries") {
-    await env.DB.prepare("INSERT INTO gallery_items (id, title, media_id, sort_order, is_visible) VALUES (?, ?, ?, ?, ?)")
-      .bind(id, cleanText(body.title, 200), cleanText(body.mediaId, 100), cleanInteger(body.sortOrder), cleanBoolean(body.isVisible)).run();
   } else {
     return error(404, "collection_not_found");
   }
@@ -264,17 +453,16 @@ async function createItem(request: Request, env: Env, collection: string): Promi
 async function updateItem(request: Request, env: Env, collection: string, id: string): Promise<Response> {
   const body = await readJson(request);
   if (collection === "posts") {
+    const title = cleanText(body.title, 200);
+    if (!title) return error(400, "title_required");
+    const slug = cleanSlug(body.slug || title, "noutate");
+    const existing = await env.DB.prepare("SELECT id FROM posts WHERE slug = ? AND id <> ?").bind(slug, id).first();
+    if (existing) return error(409, "slug_exists");
     await env.DB.prepare("UPDATE posts SET slug = ?, title = ?, excerpt = ?, body_json = ?, image_media_id = ?, published_at = ?, is_published = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
-      .bind(cleanText(body.slug, 160), cleanText(body.title, 200), cleanText(body.excerpt, 500), parseJsonArray(body.body), cleanText(body.imageMediaId, 100) || null, cleanText(body.publishedAt, 40), cleanBoolean(body.isPublished), id).run();
-  } else if (collection === "events") {
-    await env.DB.prepare("UPDATE events SET title = ?, excerpt = ?, event_date = ?, image_media_id = ?, is_published = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
-      .bind(cleanText(body.title, 200), cleanText(body.excerpt, 500), cleanText(body.eventDate, 40), cleanText(body.imageMediaId, 100) || null, cleanBoolean(body.isPublished), id).run();
+      .bind(slug, title, cleanText(body.excerpt, 500), parseJsonArray(body.body), cleanText(body.imageMediaId, 100) || null, cleanText(body.publishedAt, 40), cleanBoolean(body.isPublished), id).run();
   } else if (collection === "services") {
     await env.DB.prepare("UPDATE services SET day_label = ?, time_label = ?, service_name = ?, sort_order = ?, is_visible = ? WHERE id = ?")
       .bind(cleanText(body.dayLabel, 100), cleanText(body.timeLabel, 100), cleanText(body.serviceName, 200), cleanInteger(body.sortOrder), cleanBoolean(body.isVisible), id).run();
-  } else if (collection === "galleries") {
-    await env.DB.prepare("UPDATE gallery_items SET title = ?, media_id = ?, sort_order = ?, is_visible = ? WHERE id = ?")
-      .bind(cleanText(body.title, 200), cleanText(body.mediaId, 100), cleanInteger(body.sortOrder), cleanBoolean(body.isVisible), id).run();
   } else {
     return error(404, "collection_not_found");
   }
@@ -282,10 +470,155 @@ async function updateItem(request: Request, env: Env, collection: string, id: st
 }
 
 async function deleteItem(env: Env, collection: string, id: string): Promise<Response> {
-  const tables: Record<string, string> = { posts: "posts", events: "events", services: "services", galleries: "gallery_items" };
+  const tables: Record<string, string> = { posts: "posts", services: "services" };
   const table = tables[collection];
   if (!table) return error(404, "collection_not_found");
   await env.DB.prepare("DELETE FROM " + table + " WHERE id = ?").bind(id).run();
+  return json({ ok: true });
+}
+
+async function validateMediaIds(env: Env, values: Array<string | null>): Promise<void> {
+  const ids = [...new Set(values.filter((value): value is string => Boolean(value)))];
+  if (!ids.length) return;
+  const placeholders = ids.map(() => "?").join(",");
+  const result = await env.DB.prepare("SELECT id FROM media WHERE id IN (" + placeholders + ")").bind(...ids).all();
+  if (result.results.length !== ids.length) throw new Error("media_not_found");
+}
+
+async function createGallery(request: Request, env: Env): Promise<Response> {
+  const body = await readJson(request);
+  const id = crypto.randomUUID();
+  const title = cleanText(body.title, 200);
+  if (!title) return error(400, "title_required");
+  const slug = cleanSlug(body.slug || title, "galerie");
+  const existing = await env.DB.prepare("SELECT id FROM gallery_albums WHERE slug = ?").bind(slug).first();
+  if (existing) return error(409, "slug_exists");
+  const galleryType = GALLERY_TYPES.has(String(body.galleryType)) ? String(body.galleryType) : "photos";
+  const images = parseGalleryImages(body.images);
+  if (galleryType === "photos" && !images.length) return error(400, "gallery_images_required");
+  const coverMediaId = cleanText(body.coverMediaId, 100) || images[0]?.mediaId || null;
+  await validateMediaIds(env, [coverMediaId, ...images.map((image) => image.mediaId)]);
+  const statements = [
+    env.DB.prepare(
+      "INSERT INTO gallery_albums (id, slug, title, excerpt, gallery_type, body_json, cover_media_id, published_at, is_published) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).bind(
+      id,
+      slug,
+      title,
+      cleanText(body.excerpt, 500),
+      galleryType,
+      galleryType === "story" ? parseJsonArray(body.body) : "[]",
+      coverMediaId,
+      cleanText(body.publishedAt, 40) || new Date().toISOString(),
+      cleanBoolean(body.isPublished),
+    ),
+    ...images.map((image) => env.DB.prepare(
+      "INSERT INTO gallery_album_images (id, gallery_id, media_id, caption, sort_order) VALUES (?, ?, ?, ?, ?)",
+    ).bind(crypto.randomUUID(), id, image.mediaId, image.caption, image.sortOrder)),
+  ];
+  await env.DB.batch(statements);
+  return json({ ok: true, id, slug }, { status: 201 });
+}
+
+async function updateGallery(request: Request, env: Env, id: string): Promise<Response> {
+  const gallery = await env.DB.prepare("SELECT id FROM gallery_albums WHERE id = ?").bind(id).first();
+  if (!gallery) return error(404, "gallery_not_found");
+  const body = await readJson(request);
+  const title = cleanText(body.title, 200);
+  if (!title) return error(400, "title_required");
+  const slug = cleanSlug(body.slug || title, "galerie");
+  const existing = await env.DB.prepare("SELECT id FROM gallery_albums WHERE slug = ? AND id <> ?").bind(slug, id).first();
+  if (existing) return error(409, "slug_exists");
+  const galleryType = GALLERY_TYPES.has(String(body.galleryType)) ? String(body.galleryType) : "photos";
+  const images = parseGalleryImages(body.images);
+  if (galleryType === "photos" && !images.length) return error(400, "gallery_images_required");
+  const coverMediaId = cleanText(body.coverMediaId, 100) || images[0]?.mediaId || null;
+  await validateMediaIds(env, [coverMediaId, ...images.map((image) => image.mediaId)]);
+  await env.DB.batch([
+    env.DB.prepare(
+      "UPDATE gallery_albums SET slug = ?, title = ?, excerpt = ?, gallery_type = ?, body_json = ?, " +
+      "cover_media_id = ?, published_at = ?, is_published = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    ).bind(
+      slug,
+      title,
+      cleanText(body.excerpt, 500),
+      galleryType,
+      galleryType === "story" ? parseJsonArray(body.body) : "[]",
+      coverMediaId,
+      cleanText(body.publishedAt, 40) || new Date().toISOString(),
+      cleanBoolean(body.isPublished),
+      id,
+    ),
+    env.DB.prepare("DELETE FROM gallery_album_images WHERE gallery_id = ?").bind(id),
+    ...images.map((image) => env.DB.prepare(
+      "INSERT INTO gallery_album_images (id, gallery_id, media_id, caption, sort_order) VALUES (?, ?, ?, ?, ?)",
+    ).bind(crypto.randomUUID(), id, image.mediaId, image.caption, image.sortOrder)),
+  ]);
+  return json({ ok: true, slug });
+}
+
+async function deleteGallery(env: Env, id: string): Promise<Response> {
+  const result = await env.DB.prepare("DELETE FROM gallery_albums WHERE id = ?").bind(id).run();
+  if (!result.meta.changes) return error(404, "gallery_not_found");
+  return json({ ok: true });
+}
+
+async function createChurchCalendarEntry(request: Request, env: Env): Promise<Response> {
+  const body = await readJson(request);
+  const id = crypto.randomUUID();
+  const monthDay = cleanMonthDay(body.calendarDate || body.monthDay);
+  const title = cleanText(body.title, 200);
+  if (!title) return error(400, "title_required");
+  const existing = await env.DB.prepare("SELECT id FROM church_calendar_entries WHERE month_day = ?").bind(monthDay).first();
+  if (existing) return error(409, "calendar_date_exists");
+  const imageMediaId = cleanText(body.imageMediaId, 100) || null;
+  await validateMediaIds(env, [imageMediaId]);
+  await env.DB.prepare(
+    "INSERT INTO church_calendar_entries (id, month_day, title, excerpt, body_json, image_media_id, is_published) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).bind(
+    id,
+    monthDay,
+    title,
+    cleanText(body.excerpt, 500),
+    parseJsonArray(body.body),
+    imageMediaId,
+    cleanBoolean(body.isPublished),
+  ).run();
+  return json({ ok: true, id, monthDay }, { status: 201 });
+}
+
+async function updateChurchCalendarEntry(request: Request, env: Env, id: string): Promise<Response> {
+  const entry = await env.DB.prepare("SELECT id FROM church_calendar_entries WHERE id = ?").bind(id).first();
+  if (!entry) return error(404, "church_event_not_found");
+  const body = await readJson(request);
+  const monthDay = cleanMonthDay(body.calendarDate || body.monthDay);
+  const title = cleanText(body.title, 200);
+  if (!title) return error(400, "title_required");
+  const existing = await env.DB.prepare(
+    "SELECT id FROM church_calendar_entries WHERE month_day = ? AND id <> ?",
+  ).bind(monthDay, id).first();
+  if (existing) return error(409, "calendar_date_exists");
+  const imageMediaId = cleanText(body.imageMediaId, 100) || null;
+  await validateMediaIds(env, [imageMediaId]);
+  await env.DB.prepare(
+    "UPDATE church_calendar_entries SET month_day = ?, title = ?, excerpt = ?, body_json = ?, image_media_id = ?, " +
+    "is_published = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+  ).bind(
+    monthDay,
+    title,
+    cleanText(body.excerpt, 500),
+    parseJsonArray(body.body),
+    imageMediaId,
+    cleanBoolean(body.isPublished),
+    id,
+  ).run();
+  return json({ ok: true, monthDay });
+}
+
+async function deleteChurchCalendarEntry(env: Env, id: string): Promise<Response> {
+  const result = await env.DB.prepare("DELETE FROM church_calendar_entries WHERE id = ?").bind(id).run();
+  if (!result.meta.changes) return error(404, "church_event_not_found");
   return json({ ok: true });
 }
 
@@ -335,10 +668,12 @@ async function deleteMedia(env: Env, id: string): Promise<Response> {
 }
 
 async function deleteAllMedia(env: Env): Promise<Response> {
-  const [mediaResult, pagesResult, postsResult] = await env.DB.batch([
+  const [mediaResult, pagesResult, postsResult, galleriesResult, churchResult] = await env.DB.batch([
     env.DB.prepare("SELECT object_key FROM media"),
     env.DB.prepare("SELECT slug, body_json FROM pages"),
     env.DB.prepare("SELECT id, body_json FROM posts"),
+    env.DB.prepare("SELECT id, body_json FROM gallery_albums"),
+    env.DB.prepare("SELECT id, body_json FROM church_calendar_entries"),
   ]);
   const statements: D1PreparedStatement[] = [];
   for (const row of pagesResult.results as Array<{ slug: string; body_json: string }>) {
@@ -351,6 +686,18 @@ async function deleteAllMedia(env: Env): Promise<Response> {
     const cleaned = removeStoredImages(row.body_json);
     if (cleaned !== row.body_json) {
       statements.push(env.DB.prepare("UPDATE posts SET body_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(cleaned, row.id));
+    }
+  }
+  for (const row of galleriesResult.results as Array<{ id: string; body_json: string }>) {
+    const cleaned = removeStoredImages(row.body_json);
+    if (cleaned !== row.body_json) {
+      statements.push(env.DB.prepare("UPDATE gallery_albums SET body_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(cleaned, row.id));
+    }
+  }
+  for (const row of churchResult.results as Array<{ id: string; body_json: string }>) {
+    const cleaned = removeStoredImages(row.body_json);
+    if (cleaned !== row.body_json) {
+      statements.push(env.DB.prepare("UPDATE church_calendar_entries SET body_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(cleaned, row.id));
     }
   }
   statements.push(env.DB.prepare("DELETE FROM media"));
@@ -413,6 +760,21 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (request.method === "GET" && url.pathname === "/api/public/content") {
     return addCors(json(await getContent(env), { headers: { "Cache-Control": "no-store, max-age=0" } }), request, env);
   }
+  if (request.method === "GET" && segments[0] === "api" && segments[1] === "public" && segments[3]) {
+    let item: Record<string, unknown> | null = null;
+    if (segments[2] === "posts") item = await getPublicPost(env, decodeURIComponent(segments[3]));
+    if (segments[2] === "galleries") item = await getPublicGallery(env, decodeURIComponent(segments[3]));
+    if (segments[2] === "church-calendar") item = await getPublicChurchEntry(env, decodeURIComponent(segments[3]));
+    if (["posts", "galleries", "church-calendar"].includes(segments[2])) {
+      return addCors(
+        item
+          ? json({ item }, { headers: { "Cache-Control": "no-store, max-age=0" } })
+          : error(404, "content_not_found"),
+        request,
+        env,
+      );
+    }
+  }
   if (request.method === "GET" && segments[0] === "media") {
     return serveMedia(request, env, segments.slice(1).map(decodeURIComponent).join("/"));
   }
@@ -430,6 +792,12 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (request.method === "POST" && url.pathname === "/api/admin/media-categories") return createMediaCategory(request, env);
     if (request.method === "PUT" && segments[2] === "media-categories" && segments[3]) return updateMediaCategory(request, env, segments[3]);
     if (request.method === "DELETE" && segments[2] === "media-categories" && segments[3]) return deleteMediaCategory(env, segments[3]);
+    if (request.method === "POST" && url.pathname === "/api/admin/galleries") return createGallery(request, env);
+    if (request.method === "PUT" && segments[2] === "galleries" && segments[3]) return updateGallery(request, env, segments[3]);
+    if (request.method === "DELETE" && segments[2] === "galleries" && segments[3]) return deleteGallery(env, segments[3]);
+    if (request.method === "POST" && url.pathname === "/api/admin/church-calendar") return createChurchCalendarEntry(request, env);
+    if (request.method === "PUT" && segments[2] === "church-calendar" && segments[3]) return updateChurchCalendarEntry(request, env, segments[3]);
+    if (request.method === "DELETE" && segments[2] === "church-calendar" && segments[3]) return deleteChurchCalendarEntry(env, segments[3]);
     if (request.method === "POST" && segments[2] && segments.length === 3) return createItem(request, env, segments[2]);
     if (request.method === "PUT" && segments[2] && segments[3]) return updateItem(request, env, segments[2], segments[3]);
     if (request.method === "DELETE" && segments[2] && segments[3]) return deleteItem(env, segments[2], segments[3]);
@@ -449,6 +817,8 @@ export default {
       if (message === "content_too_large") return error(413, message);
       if (message === "invalid_json") return error(400, message);
       if (message === "category_not_found") return error(400, message);
+      if (message === "invalid_calendar_date") return error(400, message);
+      if (message === "media_not_found") return error(400, message);
       return error(500, "internal_error");
     }
   },
