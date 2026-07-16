@@ -5,8 +5,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "check": "tsc --noEmit",
-    "types": "wrangler types",
+    "check": "npm run types && tsc --noEmit",
+    "types": "wrangler types --env-file .dev.vars.example",
     "migrate:local": "wrangler d1 migrations apply manastire-main --local",
     "migrate:remote": "wrangler d1 migrations apply manastire-main --remote",
     "dry-run": "wrangler deploy --dry-run"
