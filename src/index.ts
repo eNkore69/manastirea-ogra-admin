@@ -1,3 +1,16 @@
+import { Hono } from "hono";
+import { login, logout, requireAdmin, requireCsrf, requireSession, sessionInfo } from "./auth";
+import {
+  adminBodyLimit,
+  authBodyLimit,
+  contentSecurityPolicy,
+  privateNoStore,
+  publicCors,
+  requestLogger,
+  workerSecurityHeaders,
+} from "./middleware";
+import type { AppEnv } from "./types";
+
 const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8" };
 const MAX_JSON_BYTES = 1_000_000;
 const MAX_STORED_JSON_CHARS = 750_000;
@@ -15,53 +28,17 @@ function error(status: number, code: string): Response {
   return json({ error: code }, { status });
 }
 
-function addCors(response: Response, request: Request, env: Env): Response {
-  const origin = request.headers.get("Origin");
-  if (!origin || origin !== env.SITE_ORIGIN) return response;
-  const headers = new Headers(response.headers);
-  headers.set("Access-Control-Allow-Origin", origin);
-  headers.set("Access-Control-Allow-Methods", "GET, OPTIONS");
-  headers.set("Access-Control-Allow-Headers", "Content-Type");
-  headers.set("Vary", "Origin");
-  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
-}
-
-async function sameSecret(provided: string, expected: string): Promise<boolean> {
-  const encoder = new TextEncoder();
-  const [providedHash, expectedHash] = await Promise.all([
-    crypto.subtle.digest("SHA-256", encoder.encode(provided)),
-    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
-  ]);
-  return timingSafeEqual(new Uint8Array(providedHash), new Uint8Array(expectedHash));
-}
-
-async function isAuthorized(request: Request, env: Env): Promise<boolean> {
-  const authorization = request.headers.get("Authorization");
-  if (!authorization?.startsWith("Basic ")) return false;
-  try {
-    const encodedBytes = Uint8Array.from(
-      atob(authorization.slice(6)),
-      (character) => character.charCodeAt(0),
-    );
-    const decoded = new TextDecoder().decode(encodedBytes);
-    const separator = decoded.indexOf(":");
-    if (separator < 0) return false;
-    const user = decoded.slice(0, separator);
-    const password = decoded.slice(separator + 1);
-    const [userValid, passwordValid] = await Promise.all([
-      sameSecret(user, env.USER_KEY),
-      sameSecret(password, env.PASS_KEY),
-    ]);
-    return userValid && passwordValid;
-  } catch {
-    return false;
-  }
-}
-
 async function readJson(request: Request): Promise<Record<string, unknown>> {
   const length = Number(request.headers.get("Content-Length") || "0");
   if (length > MAX_JSON_BYTES) throw new Error("payload_too_large");
-  const body: unknown = await request.json();
+  const raw = await request.text();
+  if (new TextEncoder().encode(raw).byteLength > MAX_JSON_BYTES) throw new Error("payload_too_large");
+  let body: unknown;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    throw new Error("invalid_json");
+  }
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("invalid_json");
   return body as Record<string, unknown>;
 }
@@ -625,7 +602,12 @@ async function deleteChurchCalendarEntry(env: Env, id: string): Promise<Response
 async function uploadMedia(request: Request, env: Env): Promise<Response> {
   const contentLength = Number(request.headers.get("Content-Length") || "0");
   if (contentLength > MAX_IMAGE_BYTES + 100_000) return error(413, "image_too_large");
-  const form = await request.formData();
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return error(400, "invalid_form_data");
+  }
   const file = form.get("file");
   if (!(file instanceof File)) return error(400, "file_required");
   if (file.size > MAX_IMAGE_BYTES) return error(413, "image_too_large");
@@ -750,77 +732,101 @@ async function serveMedia(request: Request, env: Env, key: string): Promise<Resp
   return new Response(object.body, { headers, status: 200 });
 }
 
-async function route(request: Request, env: Env): Promise<Response> {
-  const url = new URL(request.url);
-  const segments = url.pathname.split("/").filter(Boolean);
+const app = new Hono<AppEnv>();
 
-  if (request.method === "OPTIONS" && url.pathname.startsWith("/api/public/")) {
-    return addCors(new Response(null, { status: 204 }), request, env);
-  }
-  if (request.method === "GET" && url.pathname === "/api/public/content") {
-    return addCors(json(await getContent(env), { headers: { "Cache-Control": "no-store, max-age=0" } }), request, env);
-  }
-  if (request.method === "GET" && segments[0] === "api" && segments[1] === "public" && segments[3]) {
-    let item: Record<string, unknown> | null = null;
-    if (segments[2] === "posts") item = await getPublicPost(env, decodeURIComponent(segments[3]));
-    if (segments[2] === "galleries") item = await getPublicGallery(env, decodeURIComponent(segments[3]));
-    if (segments[2] === "church-calendar") item = await getPublicChurchEntry(env, decodeURIComponent(segments[3]));
-    if (["posts", "galleries", "church-calendar"].includes(segments[2])) {
-      return addCors(
-        item
-          ? json({ item }, { headers: { "Cache-Control": "no-store, max-age=0" } })
-          : error(404, "content_not_found"),
-        request,
-        env,
-      );
-    }
-  }
-  if (request.method === "GET" && segments[0] === "media") {
-    return serveMedia(request, env, segments.slice(1).map(decodeURIComponent).join("/"));
-  }
-  if (url.pathname.startsWith("/api/admin/")) {
-    if (!(await isAuthorized(request, env))) {
-      return json({ error: "unauthorized" }, { status: 401 });
-    }
-    if (request.method === "GET" && url.pathname === "/api/admin/content") return json(await getContent(env, true));
-    if (request.method === "PUT" && url.pathname === "/api/admin/settings") return updateSettings(request, env);
-    if (request.method === "PUT" && segments[2] === "pages" && segments[3]) return updatePage(request, env, segments[3]);
-    if (request.method === "POST" && url.pathname === "/api/admin/media") return uploadMedia(request, env);
-    if (request.method === "DELETE" && url.pathname === "/api/admin/media") return deleteAllMedia(env);
-    if (request.method === "PUT" && segments[2] === "media" && segments[3]) return updateMedia(request, env, segments[3]);
-    if (request.method === "DELETE" && segments[2] === "media" && segments[3]) return deleteMedia(env, segments[3]);
-    if (request.method === "POST" && url.pathname === "/api/admin/media-categories") return createMediaCategory(request, env);
-    if (request.method === "PUT" && segments[2] === "media-categories" && segments[3]) return updateMediaCategory(request, env, segments[3]);
-    if (request.method === "DELETE" && segments[2] === "media-categories" && segments[3]) return deleteMediaCategory(env, segments[3]);
-    if (request.method === "POST" && url.pathname === "/api/admin/galleries") return createGallery(request, env);
-    if (request.method === "PUT" && segments[2] === "galleries" && segments[3]) return updateGallery(request, env, segments[3]);
-    if (request.method === "DELETE" && segments[2] === "galleries" && segments[3]) return deleteGallery(env, segments[3]);
-    if (request.method === "POST" && url.pathname === "/api/admin/church-calendar") return createChurchCalendarEntry(request, env);
-    if (request.method === "PUT" && segments[2] === "church-calendar" && segments[3]) return updateChurchCalendarEntry(request, env, segments[3]);
-    if (request.method === "DELETE" && segments[2] === "church-calendar" && segments[3]) return deleteChurchCalendarEntry(env, segments[3]);
-    if (request.method === "POST" && segments[2] && segments.length === 3) return createItem(request, env, segments[2]);
-    if (request.method === "PUT" && segments[2] && segments[3]) return updateItem(request, env, segments[2], segments[3]);
-    if (request.method === "DELETE" && segments[2] && segments[3]) return deleteItem(env, segments[2], segments[3]);
-    return error(404, "admin_route_not_found");
-  }
-  return env.ASSETS.fetch(request);
-}
+app.use("*", requestLogger);
+app.use("*", workerSecurityHeaders);
+app.use("*", contentSecurityPolicy);
+app.use("/api/public/*", publicCors);
+app.use("/api/auth/*", privateNoStore);
+app.use("/api/admin/*", privateNoStore);
 
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    try {
-      return await route(request, env);
-    } catch (caught) {
-      const message = caught instanceof Error ? caught.message : "unknown_error";
-      console.error(JSON.stringify({ message: "request_failed", error: message, path: new URL(request.url).pathname }));
-      if (message === "payload_too_large") return error(413, message);
-      if (message === "content_too_large") return error(413, message);
-      if (message === "invalid_json") return error(400, message);
-      if (message === "category_not_found") return error(400, message);
-      if (message === "invalid_calendar_date") return error(400, message);
-      if (message === "media_not_found") return error(400, message);
-      return error(500, "internal_error");
-    }
-  },
-} satisfies ExportedHandler<Env>;
-import { timingSafeEqual } from "node:crypto";
+app.use("/api/auth/login", authBodyLimit);
+app.post("/api/auth/login", login);
+app.use("/api/auth/session", requireSession);
+app.get("/api/auth/session", sessionInfo);
+app.use("/api/auth/logout", requireSession);
+app.use("/api/auth/logout", requireCsrf);
+app.post("/api/auth/logout", logout);
+
+app.get("/api/public/content", async (c) => {
+  return json(await getContent(c.env), { headers: { "Cache-Control": "no-store, max-age=0" } });
+});
+
+app.get("/api/public/posts/:slug", async (c) => {
+  const item = await getPublicPost(c.env, c.req.param("slug"));
+  return item
+    ? json({ item }, { headers: { "Cache-Control": "no-store, max-age=0" } })
+    : error(404, "content_not_found");
+});
+
+app.get("/api/public/galleries/:slug", async (c) => {
+  const item = await getPublicGallery(c.env, c.req.param("slug"));
+  return item
+    ? json({ item }, { headers: { "Cache-Control": "no-store, max-age=0" } })
+    : error(404, "content_not_found");
+});
+
+app.get("/api/public/church-calendar/:monthDay", async (c) => {
+  const item = await getPublicChurchEntry(c.env, c.req.param("monthDay"));
+  return item
+    ? json({ item }, { headers: { "Cache-Control": "no-store, max-age=0" } })
+    : error(404, "content_not_found");
+});
+
+app.get("/media/*", (c) => {
+  const key = c.req.path
+    .slice("/media/".length)
+    .split("/")
+    .map((segment) => decodeURIComponent(segment))
+    .join("/");
+  return serveMedia(c.req.raw, c.env, key);
+});
+
+app.use("/api/admin/*", requireSession);
+app.use("/api/admin/*", requireAdmin);
+app.use("/api/admin/*", requireCsrf);
+app.use("/api/admin/*", adminBodyLimit);
+
+app.get("/api/admin/content", async (c) => json(await getContent(c.env, true)));
+app.put("/api/admin/settings", (c) => updateSettings(c.req.raw, c.env));
+app.put("/api/admin/pages/:slug", (c) => updatePage(c.req.raw, c.env, c.req.param("slug")));
+app.post("/api/admin/media", (c) => uploadMedia(c.req.raw, c.env));
+app.delete("/api/admin/media", (c) => deleteAllMedia(c.env));
+app.put("/api/admin/media/:id", (c) => updateMedia(c.req.raw, c.env, c.req.param("id")));
+app.delete("/api/admin/media/:id", (c) => deleteMedia(c.env, c.req.param("id")));
+app.post("/api/admin/media-categories", (c) => createMediaCategory(c.req.raw, c.env));
+app.put("/api/admin/media-categories/:id", (c) => updateMediaCategory(c.req.raw, c.env, c.req.param("id")));
+app.delete("/api/admin/media-categories/:id", (c) => deleteMediaCategory(c.env, c.req.param("id")));
+app.post("/api/admin/galleries", (c) => createGallery(c.req.raw, c.env));
+app.put("/api/admin/galleries/:id", (c) => updateGallery(c.req.raw, c.env, c.req.param("id")));
+app.delete("/api/admin/galleries/:id", (c) => deleteGallery(c.env, c.req.param("id")));
+app.post("/api/admin/church-calendar", (c) => createChurchCalendarEntry(c.req.raw, c.env));
+app.put("/api/admin/church-calendar/:id", (c) => updateChurchCalendarEntry(c.req.raw, c.env, c.req.param("id")));
+app.delete("/api/admin/church-calendar/:id", (c) => deleteChurchCalendarEntry(c.env, c.req.param("id")));
+app.post("/api/admin/:collection", (c) => createItem(c.req.raw, c.env, c.req.param("collection")));
+app.put("/api/admin/:collection/:id", (c) => updateItem(c.req.raw, c.env, c.req.param("collection"), c.req.param("id")));
+app.delete("/api/admin/:collection/:id", (c) => deleteItem(c.env, c.req.param("collection"), c.req.param("id")));
+
+app.all("/api/admin/*", (c) => c.json({ error: "admin_route_not_found" }, 404));
+app.all("/api/*", (c) => c.json({ error: "api_route_not_found" }, 404));
+app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));
+
+app.onError((caught, c) => {
+  const message = caught instanceof Error ? caught.message : "unknown_error";
+  console.error(JSON.stringify({
+    message: "request_failed",
+    requestId: c.get("requestId"),
+    error: message,
+    path: c.req.path,
+  }));
+  if (message === "payload_too_large" || message === "content_too_large") {
+    return c.json({ error: message }, 413);
+  }
+  if (["invalid_json", "category_not_found", "invalid_calendar_date", "media_not_found"].includes(message)) {
+    return c.json({ error: message }, 400);
+  }
+  return c.json({ error: "internal_error" }, 500);
+});
+
+export default app;

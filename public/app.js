@@ -4,7 +4,7 @@ import { createAboutEditor } from "./about-editor.js";
 document.title = L.title;
 const app = document.querySelector("#app");
 const state = {
-  auth: sessionStorage.getItem("adminAuth") || "",
+  csrfToken: "",
   content: null,
   section: "dashboard",
   mediaCategoryFilter: "all",
@@ -13,7 +13,6 @@ const state = {
 
 const sections = ["dashboard", "pages", "media", "events", "services", "galleries", "settings"];
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
-const toBase64 = (value) => btoa(String.fromCharCode(...new TextEncoder().encode(value)));
 const MAX_MEDIA_EDGE = 2560;
 const WEBP_QUALITY = 0.86;
 let activeAboutEditor = null;
@@ -80,10 +79,13 @@ async function convertImageToWebp(file) {
 
 async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
-  if (state.auth) headers.set("Authorization", "Basic " + state.auth);
-  const response = await fetch(path, { ...options, headers });
+  const method = String(options.method || "GET").toUpperCase();
+  if (!["GET", "HEAD", "OPTIONS"].includes(method) && state.csrfToken) {
+    headers.set("X-CSRF-Token", state.csrfToken);
+  }
+  const response = await fetch(path, { ...options, headers, credentials: "same-origin" });
   if (response.status === 401) {
-    logout();
+    resetAuthentication();
     throw new Error("unauthorized");
   }
   if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || "request_failed");
@@ -125,12 +127,21 @@ function mediaErrorMessage(caught) {
   return messages[code] || L.error + " [" + code + "]";
 }
 
-function logout() {
+function resetAuthentication() {
   destroyAboutEditor();
-  state.auth = "";
+  state.csrfToken = "";
   state.content = null;
-  sessionStorage.removeItem("adminAuth");
   renderLogin();
+}
+
+async function logout() {
+  try {
+    await api("/api/auth/logout", { method: "POST" });
+  } catch {
+    // A local reset is still required when the session has already expired.
+  } finally {
+    resetAuthentication();
+  }
 }
 
 function renderLogin(message = "") {
@@ -138,13 +149,17 @@ function renderLogin(message = "") {
   document.querySelector("#login-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    state.auth = toBase64(String(data.get("user")) + ":" + String(data.get("pass")));
     try {
+      const session = await api("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user: String(data.get("user")), password: String(data.get("pass")) }),
+      });
+      state.csrfToken = session.csrfToken;
       state.content = await api("/api/admin/content");
-      sessionStorage.setItem("adminAuth", state.auth);
       renderShell();
     } catch (caught) {
-      state.auth = "";
+      state.csrfToken = "";
       renderLogin(caught instanceof Error && caught.message === "unauthorized" ? L.invalidLogin : L.loginServerError);
     }
   });
@@ -152,7 +167,7 @@ function renderLogin(message = "") {
 
 function renderShell() {
   app.innerHTML = '<div class="app-shell"><aside class="sidebar"><strong>' + esc(L.brand) + '</strong><small>' + esc(L.admin) + '</small><nav class="nav">' + sections.map((section) => '<button type="button" data-section="' + section + '">' + esc(L[section]) + '</button>').join("") + '</nav><button class="button button-secondary logout" type="button" id="logout">' + esc(L.logout) + '</button></aside><div class="main"><header class="topbar"><h1 id="section-title"></h1></header><main class="content" id="content"></main></div></div>';
-  document.querySelector("#logout").addEventListener("click", logout);
+  document.querySelector("#logout").addEventListener("click", () => void logout());
   document.querySelectorAll("[data-section]").forEach((button) => button.addEventListener("click", () => {
     state.section = button.dataset.section;
     renderSection();
@@ -1197,11 +1212,10 @@ function openItemEditor(collection, item = null) {
   });
 }
 
-if (state.auth) {
-  api("/api/admin/content").then((content) => {
-    state.content = content;
+api("/api/auth/session")
+  .then(async (session) => {
+    state.csrfToken = session.csrfToken;
+    state.content = await api("/api/admin/content");
     renderShell();
-  }).catch(() => renderLogin());
-} else {
-  renderLogin();
-}
+  })
+  .catch(() => renderLogin());
