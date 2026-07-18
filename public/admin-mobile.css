@@ -1,0 +1,159 @@
+:root {
+  --admin-mobile-navy: #071827;
+  --admin-mobile-gold: #d0a24f;
+}
+
+html.admin-gate-pending,
+html.admin-mobile-blocked {
+  min-width: 0;
+  min-height: 100%;
+  overflow: hidden;
+  background: var(--admin-mobile-navy);
+}
+
+html.admin-gate-pending body {
+  opacity: 0;
+}
+
+html.admin-mobile-blocked body {
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  overflow: hidden;
+  background: var(--admin-mobile-navy);
+}
+
+.mobile-admin-block {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 100vh;
+  min-height: 100svh;
+  place-items: center;
+  overflow: hidden;
+  padding: clamp(18px, 5vw, 42px);
+  color: #f8f3e9;
+}
+
+.mobile-admin-block::before,
+.mobile-admin-block::after {
+  position: absolute;
+  inset: -32px;
+  z-index: -2;
+  content: "";
+  pointer-events: none;
+}
+
+.mobile-admin-block::before {
+  background-color: #102d43;
+  background-image: var(
+    --admin-mobile-background-image,
+    url("https://pub-99430775beee4c35af1a71db01594dd8.r2.dev/images/2026/3a1a765e-6c69-4ea6-b048-4a449a819074.webp")
+  );
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+  filter: blur(18px) saturate(0.78);
+  transform: scale(1.1);
+}
+
+.mobile-admin-block::after {
+  z-index: -1;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(208, 162, 79, 0.18), transparent 44%),
+    linear-gradient(160deg, rgba(5, 17, 28, 0.7), rgba(4, 15, 25, 0.9));
+}
+
+.mobile-admin-card {
+  width: min(540px, 100%);
+  min-width: 0;
+  padding: clamp(28px, 7vw, 48px) clamp(24px, 7vw, 46px);
+  border: 1px solid rgba(235, 201, 137, 0.3);
+  border-top-color: rgba(236, 191, 105, 0.76);
+  border-radius: 24px;
+  background: linear-gradient(145deg, rgba(14, 39, 57, 0.72), rgba(7, 25, 39, 0.56));
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  text-align: center;
+  -webkit-backdrop-filter: blur(22px) saturate(1.15);
+  backdrop-filter: blur(22px) saturate(1.15);
+  animation: admin-mobile-fade-in 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.mobile-admin-icon {
+  display: grid;
+  width: 76px;
+  height: 76px;
+  margin: 0 auto 24px;
+  place-items: center;
+  border: 1px solid rgba(222, 178, 94, 0.5);
+  border-radius: 22px;
+  background: rgba(207, 158, 72, 0.12);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.2);
+  color: #e2b760;
+}
+
+.mobile-admin-icon svg {
+  width: 43px;
+  height: 43px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mobile-admin-kicker {
+  margin: 0 0 12px !important;
+  color: #e1b45e !important;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.19em;
+  text-transform: uppercase;
+}
+
+.mobile-admin-card h1 {
+  max-width: 14em;
+  margin: 0 auto 20px;
+  color: #fffaf0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(1.75rem, 7vw, 2.55rem);
+  font-weight: 600;
+  line-height: 1.13;
+  text-wrap: balance;
+}
+
+.mobile-admin-card p:not(.mobile-admin-kicker) {
+  max-width: 34em;
+  margin: 0 auto;
+  color: rgba(241, 244, 247, 0.86);
+  font-size: clamp(0.96rem, 3.8vw, 1.08rem);
+  line-height: 1.68;
+  text-wrap: pretty;
+}
+
+.mobile-admin-card p + p {
+  margin-top: 8px !important;
+  color: rgba(235, 199, 131, 0.92) !important;
+}
+
+@keyframes admin-mobile-fade-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .mobile-admin-block { padding: 14px 24px; }
+  .mobile-admin-card { padding: 20px 30px; border-radius: 20px; }
+  .mobile-admin-icon { width: 56px; height: 56px; margin-bottom: 12px; border-radius: 16px; }
+  .mobile-admin-icon svg { width: 32px; height: 32px; }
+  .mobile-admin-kicker { margin-bottom: 7px !important; }
+  .mobile-admin-card h1 { margin-bottom: 10px; font-size: clamp(1.45rem, 5vw, 2rem); }
+  .mobile-admin-card p:not(.mobile-admin-kicker) { font-size: 0.9rem; line-height: 1.45; }
+  .mobile-admin-card p + p { margin-top: 4px !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-admin-card { animation: none; }
+}

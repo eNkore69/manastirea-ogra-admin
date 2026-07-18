@@ -10,6 +10,7 @@
     "types": "wrangler types --env-file .dev.vars.example",
     "migrate:local": "wrangler d1 migrations apply manastire-main --local",
     "migrate:remote": "wrangler d1 migrations apply manastire-main --remote",
+    "test:admin-gate": "node --test tests/admin-device-policy.test.mjs",
     "dry-run": "npm run build:editor && wrangler deploy --dry-run"
   },
   "devDependencies": {
