@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { login, logout, requireAdmin, requireCsrf, requireSession, sessionInfo } from "./auth";
+import { hasValidWebpSignature } from "./media-validation";
 import {
   adminBodyLimit,
   authBodyLimit,
@@ -15,7 +16,7 @@ const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8" };
 const MAX_JSON_BYTES = 1_000_000;
 const MAX_STORED_JSON_CHARS = 750_000;
 const MAX_IMAGE_BYTES = 15_000_000;
-const IMAGE_TYPES = new Set(["image/webp"]);
+const IMAGE_TYPE = "image/webp";
 const PAGE_SLUGS = new Set(["home", "life", "services", "news", "gallery", "contact"]);
 const GALLERY_TYPES = new Set(["story", "photos"]);
 const MAX_GALLERY_IMAGES = 100;
@@ -611,7 +612,8 @@ async function uploadMedia(request: Request, env: Env): Promise<Response> {
   const file = form.get("file");
   if (!(file instanceof File)) return error(400, "file_required");
   if (file.size > MAX_IMAGE_BYTES) return error(413, "image_too_large");
-  if (!IMAGE_TYPES.has(file.type)) return error(415, "unsupported_image_type");
+  if (file.type !== IMAGE_TYPE) return error(415, "unsupported_image_type");
+  if (!(await hasValidWebpSignature(file))) return error(415, "unsupported_image_type");
   const categoryId = await validateCategoryId(env, form.get("categoryId"));
   const objectKey = "images/" + new Date().getUTCFullYear() + "/" + crypto.randomUUID() + ".webp";
   await env.MEDIA.put(objectKey, file.stream(), { httpMetadata: { contentType: "image/webp", cacheControl: "public, max-age=31536000, immutable" } });

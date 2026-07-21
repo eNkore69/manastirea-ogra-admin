@@ -43,7 +43,7 @@ export const requestLogger: MiddlewareHandler<AppEnv> = async (c, next) => {
 
 export const workerSecurityHeaders = secureHeaders({
   referrerPolicy: "strict-origin-when-cross-origin",
-  strictTransportSecurity: "max-age=31536000; includeSubDomains",
+  strictTransportSecurity: "max-age=15552000; includeSubDomains",
   xFrameOptions: "DENY",
 });
 
@@ -70,6 +70,11 @@ export const contentSecurityPolicy: MiddlewareHandler<AppEnv> = async (c, next) 
       "style-src 'self' 'unsafe-inline'",
     ].join("; "),
   );
+  c.header("Cross-Origin-Opener-Policy", "same-origin");
+  c.header("Cross-Origin-Resource-Policy", "same-origin");
+  c.header("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+  c.header("X-Permitted-Cross-Domain-Policies", "none");
+  c.header("X-Robots-Tag", "noindex, nofollow");
 };
 
 export const privateNoStore: MiddlewareHandler<AppEnv> = async (c, next) => {

@@ -2,8 +2,14 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "manastirea-ogra-admin",
   "main": "src/index.ts",
-  "compatibility_date": "2026-07-16",
+  "compatibility_date": "2026-07-21",
   "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{
+    "pattern": "admin.parohiaortodoxaogra.ro/*",
+    "zone_name": "parohiaortodoxaogra.ro"
+  }],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
@@ -21,8 +27,8 @@
     "bucket_name": "manastirea-ogra-media"
   }],
   "vars": {
-    "SITE_ORIGIN": "https://manastirea-ogra.manastireaogra.workers.dev",
-    "PUBLIC_MEDIA_URL": "https://pub-99430775beee4c35af1a71db01594dd8.r2.dev"
+    "SITE_ORIGIN": "https://parohiaortodoxaogra.ro",
+    "PUBLIC_MEDIA_URL": "https://media.parohiaortodoxaogra.ro"
   },
   "observability": {
     "enabled": true,

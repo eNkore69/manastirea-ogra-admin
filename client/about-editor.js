@@ -210,7 +210,6 @@ export function createAboutEditor({
 
   return {
     getJSON: () => editor.getJSON(),
-    focus: () => editor.commands.focus(),
     destroy: () => editor.destroy(),
   };
 }

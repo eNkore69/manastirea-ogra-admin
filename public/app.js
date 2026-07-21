@@ -819,7 +819,7 @@ function renderEventsHub() {
     '<button type="button" data-event-tab="church" class="' + (!isNews ? "active" : "") + '">' + esc(L.churchEvents) + "</button></div></section>" +
     '<section class="panel content-manager"><div class="section-heading"><div><p class="section-kicker">' + esc(isNews ? L.newsUpdates : L.churchCalendar) + '</p><h2>' + esc(isNews ? L.newsListTitle : L.churchListTitle) + '</h2></div><button class="button button-primary" id="add-content-item" type="button">' + esc(isNews ? L.addNews : L.addChurchEvent) + '</button></div>' +
     '<div class="manager-list">' + (items.length ? items.map((item) =>
-      '<article class="manager-card"><div class="manager-card-date">' + esc(isNews ? item.display_date : item.display_date) + '</div><div class="manager-card-copy"><span class="status-pill ' + (item.is_published ? "published" : "draft") + '">' + esc(item.is_published ? L.published : L.draft) + '</span><h3>' + esc(item.title) + '</h3><p>' + esc(item.excerpt || "") + '</p></div><div class="row-actions"><button class="button button-secondary" data-edit-content="' + esc(item.id) + '" type="button">' + esc(L.edit) + '</button><button class="button button-danger" data-delete-content="' + esc(item.id) + '" type="button">' + esc(L.remove) + "</button></div></article>"
+      '<article class="manager-card"><div class="manager-card-date">' + esc(item.display_date) + '</div><div class="manager-card-copy"><span class="status-pill ' + (item.is_published ? "published" : "draft") + '">' + esc(item.is_published ? L.published : L.draft) + '</span><h3>' + esc(item.title) + '</h3><p>' + esc(item.excerpt || "") + '</p></div><div class="row-actions"><button class="button button-secondary" data-edit-content="' + esc(item.id) + '" type="button">' + esc(L.edit) + '</button><button class="button button-danger" data-delete-content="' + esc(item.id) + '" type="button">' + esc(L.remove) + "</button></div></article>"
     ).join("") : '<div class="empty-state">' + esc(isNews ? L.noNewsItems : L.noChurchItems) + "</div>") + "</div></section>";
 
   document.querySelectorAll("[data-event-tab]").forEach((button) => button.addEventListener("click", () => {
@@ -990,10 +990,9 @@ function openGalleryEditor(item = null) {
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
   const media = state.content.media || [];
-  let selectedImages = (item?.images || []).map((image, index) => ({
+  let selectedImages = (item?.images || []).map((image) => ({
     mediaId: image.media_id,
     caption: image.caption || "",
-    sortOrder: index,
   }));
   backdrop.innerHTML = '<div class="modal modal-workspace gallery-workspace"><div class="workspace-modal-heading"><div><p class="section-kicker">' + esc(L.galleries) + '</p><h2>' + esc(item ? L.editGallery : L.addGallery) + '</h2><p>' + esc(L.galleryEditorIntro) + '</p></div><button class="icon-button" data-close-editor type="button" aria-label="' + esc(L.cancel) + '">×</button></div>' +
     '<form id="gallery-editor-form"><div class="form-grid">' +
@@ -1053,7 +1052,7 @@ function openGalleryEditor(item = null) {
     if (!button) return;
     const index = selectedImages.findIndex((image) => image.mediaId === button.dataset.pickMedia);
     if (index >= 0) selectedImages.splice(index, 1);
-    else selectedImages.push({ mediaId: button.dataset.pickMedia, caption: "", sortOrder: selectedImages.length });
+    else selectedImages.push({ mediaId: button.dataset.pickMedia, caption: "" });
     if (!coverSelect.value && selectedImages.length) coverSelect.value = selectedImages[0].mediaId;
     renderSelected();
   });
@@ -1097,7 +1096,7 @@ function openGalleryEditor(item = null) {
         newIds.push(result.id);
       }
       state.content = await api("/api/admin/content");
-      newIds.forEach((mediaId) => selectedImages.push({ mediaId, caption: "", sortOrder: selectedImages.length }));
+      newIds.forEach((mediaId) => selectedImages.push({ mediaId, caption: "" }));
       const draftBody = richBodyFromEditor(editorController);
       const draftCoverMediaId = coverSelect.value || selectedImages[0]?.mediaId || "";
       const draft = {
@@ -1184,11 +1183,9 @@ function openItemEditor(collection, item = null) {
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
   const fieldsHtml = fields.map(([key, labelKey, type]) => {
-    let value = item ? itemValue(collection, item, key) : "";
-    if (type === "json") value = JSON.stringify(value || [], null, 2);
-    if (type === "media") return '<div class="field"><label for="' + key + '">' + esc(L[labelKey]) + '</label><select id="' + key + '" name="' + key + '">' + mediaOptions(value) + "</select></div>";
+    const value = item ? itemValue(collection, item, key) : "";
     if (type === "checkbox") return '<label class="checkbox"><input name="' + key + '" type="checkbox"' + (value ? " checked" : "") + ">" + esc(L[labelKey]) + "</label>";
-    return field(key, L[labelKey], value, type === "json" || type === "textarea" ? "textarea" : type);
+    return field(key, L[labelKey], value, type);
   }).join("");
   backdrop.innerHTML = '<div class="modal"><h2>' + esc(item ? L.edit : L.add) + '</h2><form id="item-form"><div class="form-grid">' + fieldsHtml + '</div><div class="actions"><button class="button button-secondary" data-cancel type="button">' + esc(L.cancel) + '</button><button class="button button-primary" type="submit">' + esc(L.save) + "</button></div></form></div>";
   document.body.append(backdrop);
@@ -1198,11 +1195,6 @@ function openItemEditor(collection, item = null) {
     const form = event.currentTarget;
     const data = Object.fromEntries(new FormData(form));
     fields.filter(([, , type]) => type === "checkbox").forEach(([key]) => { data[key] = form.elements[key].checked; });
-    for (const [key, , type] of fields) {
-      if (type === "json") {
-        try { data[key] = JSON.parse(data[key] || "[]"); } catch { notify(L.error); return; }
-      }
-    }
     const path = "/api/admin/" + collection + (item ? "/" + encodeURIComponent(item.id) : "");
     await api(path, { method: item ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
     backdrop.remove();
