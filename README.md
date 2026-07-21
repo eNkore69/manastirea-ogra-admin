@@ -1,4 +1,4 @@
-# Mănăstirea Ogra — admin și API
+# Parohia Ortodoxă Ogra — admin și API
 
 Cloudflare Worker care servește interfața de administrare și API-ul de conținut al site-ului Astro. Routerul HTTP este construit cu Hono, iar datele și imaginile rămân în D1 și R2.
 

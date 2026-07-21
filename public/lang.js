@@ -1,6 +1,6 @@
 export const ro = {
-  title: "Administrare — Mănăstirea Ogra",
-  brand: "Mănăstirea Ogra",
+  title: "Administrare — Parohia Ortodoxă Ogra",
+  brand: "Parohia Ortodoxă Ogra",
   admin: "Panou de administrare",
   loginTitle: "Autentificare",
   loginIntro: "Autentificați-vă pentru a administra conținutul site-ului.",

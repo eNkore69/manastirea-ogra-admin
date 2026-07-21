@@ -87,13 +87,13 @@ INSERT INTO settings (key, value) VALUES
   ('facebook_url', ''),
   ('instagram_url', ''),
   ('maps_url', 'https://maps.app.goo.gl/pnL8XuAqr5kvZyqYA'),
-  ('map_query', 'Mănăstirea Sfinții Arhangheli Mihail și Gavril Ogra');
+  ('map_query', 'Parohia Ortodoxă Ogra');
 
 INSERT INTO pages (slug, title, eyebrow, intro, body_json, seo_title, seo_description) VALUES
-  ('home', 'Bine ați venit la casa lui Dumnezeu', 'Mănăstirea Ogra', 'Credință, rugăciune și comuniune în lumina Sfinților Arhangheli.', '[{"eyebrow":"Cuvânt de învățătură","title":"Credința ne unește, dragostea ne întărește","text":"Să avem iubire unii către alții, căci iubirea este din Dumnezeu.","quote":"1 Ioan 4:7"}]', 'Mănăstirea Sfinții Arhangheli Mihail și Gavril Ogra', 'Pagina oficială a Mănăstirii Sfinții Arhangheli Mihail și Gavril Ogra.'),
-  ('about', 'Despre noi', 'Mănăstirea noastră', '', '[]', 'Despre mănăstire', 'Istoria, obștea și misiunea Mănăstirii Ogra.'),
-  ('life', 'Viața mănăstirii', 'Credință și comuniune', '', '[]', 'Viața mănăstirii', 'Activități, proiecte și viața duhovnicească a Mănăstirii Ogra.'),
-  ('services', 'Slujbe', 'Program liturgic', '', '[]', 'Programul slujbelor', 'Programul actualizat al slujbelor la Mănăstirea Ogra.'),
-  ('news', 'Știri și evenimente', 'Actualități', '', '[]', 'Știri și evenimente', 'Noutăți și evenimente de la Mănăstirea Ogra.'),
-  ('gallery', 'Galerie', 'Momente și mărturii', '', '[]', 'Galerie foto', 'Imagini din viața liturgică și comunitară a Mănăstirii Ogra.'),
-  ('contact', 'Contact', 'Vă așteptăm cu drag', '', '[]', 'Contact', 'Date de contact și localizarea Mănăstirii Ogra.');
+  ('home', 'Bine ați venit la casa lui Dumnezeu', 'Parohia Ortodoxă Ogra', 'Credință, rugăciune și comuniune în lumina Sfinților Arhangheli.', '[{"eyebrow":"Cuvânt de învățătură","title":"Credința ne unește, dragostea ne întărește","text":"Să avem iubire unii către alții, căci iubirea este din Dumnezeu.","quote":"1 Ioan 4:7"}]', 'Parohia Ortodoxă Ogra', 'Site-ul oficial al Parohiei Ortodoxe Ogra.'),
+  ('about', 'Despre noi', 'Parohia noastră', '', '[]', 'Despre parohie', 'Istoria, comunitatea și misiunea Parohiei Ortodoxe Ogra.'),
+  ('life', 'Viața mănăstirii', 'Credință și comuniune', '', '[]', 'Viața mănăstirii', 'Activități, proiecte și viața duhovnicească a Parohiei Ortodoxe Ogra.'),
+  ('services', 'Slujbe', 'Program liturgic', '', '[]', 'Programul slujbelor', 'Programul actualizat al slujbelor la Parohia Ortodoxă Ogra.'),
+  ('news', 'Știri și evenimente', 'Actualități', '', '[]', 'Știri și evenimente', 'Noutăți și evenimente de la Parohia Ortodoxă Ogra.'),
+  ('gallery', 'Galerie', 'Momente și mărturii', '', '[]', 'Galerie foto', 'Imagini din viața liturgică și comunitară a Parohiei Ortodoxe Ogra.'),
+  ('contact', 'Contact', 'Vă așteptăm cu drag', '', '[]', 'Contact', 'Date de contact și localizarea Parohiei Ortodoxe Ogra.');
